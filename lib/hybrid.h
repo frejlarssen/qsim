@@ -132,12 +132,6 @@ struct HybridSimulator final {
     unsigned num_threads;
   };
 
-  // Bitstring indices for part 0 and part 1.
-  struct Index {
-    unsigned i0;
-    unsigned i1;
-  };
-
   template <typename... Args>
   explicit HybridSimulator(Args&&... args) : for_(args...) {}
 
@@ -308,10 +302,10 @@ struct HybridSimulator final {
   template <typename Factory, typename Results>
   bool Run(const Parameter& param, const Factory& factory,
            HybridData& hd, const std::vector<unsigned>& parts,
-           const std::vector<GateFused>& fgates0,
-           const std::vector<GateFused>& fgates1,
+           const std::vector<GateFused>& fgates,
+           const unsigned num_qubits,
            const std::vector<uint64_t>& bitstrings,
-           std::vector<Index> indices, Results& results) const {
+           std::vector<unsigned> indices, Results& results) const {
     using Simulator = typename Factory::Simulator;
     using StateSpace = typename Simulator::StateSpace;
     using State = typename StateSpace::State;
@@ -319,53 +313,47 @@ struct HybridSimulator final {
     unsigned num_p_gates = param.num_prefix_gatexs;
     unsigned num_pr_gates = num_p_gates + param.num_root_gatexs;
 
-    auto loc0 = CheckpointLocations(param, fgates0);
-    auto loc1 = CheckpointLocations(param, fgates1);
+    auto loc = CheckpointLocations(param, fgates);
 
     StateSpace state_space = factory.CreateStateSpace();
 
-    State* rstate0;
-    State* rstate1;
+    State* rstate;
 
-    State state0p = state_space.Null();
-    State state1p = state_space.Null();
-    State state0r = state_space.Null();
-    State state1r = state_space.Null();
-    State state0s = state_space.Null();
-    State state1s = state_space.Null();
+    State state_p = state_space.Null();
+    State state_r = state_space.Null();
+    State state_s = state_space.Null();
 
     // Create states.
 
-    if (!CreateStates(hd.num_qubits0, hd.num_qubits1, state_space, true,
-                      state0p, state1p, rstate0, rstate1)) {
+    if (!CreateStates(num_qubits, state_space, true,
+                      state_p, rstate)) {
       return false;
     }
 
-    if (!CreateStates(hd.num_qubits0, hd.num_qubits1, state_space, hd.rmax > 1,
-                      state0r, state1r, rstate0, rstate1)) {
+    if (!CreateStates(num_qubits, state_space, hd.rmax > 1,
+                      state_r, rstate)) {
       return false;
     }
 
-    if (!CreateStates(hd.num_qubits0, hd.num_qubits1, state_space, hd.smax > 1,
-                      state0s, state1s, rstate0, rstate1)) {
+    if (!CreateStates(num_qubits, state_space, hd.smax > 1,
+                      state_s, rstate)) {
       return false;
     }
 
-    state_space.SetStateZero(state0p);
-    state_space.SetStateZero(state1p);
+    state_space.SetStateZero(state_p);
 
     Simulator simulator = factory.CreateSimulator();
 
     std::vector<unsigned> prev(hd.num_gatexs, unsigned(-1));
 
     // param.prefix encodes the prefix path.
+    // TODO: This could be done in main node.
     unsigned gatex_index = SetSchmidtMatrices(
         0, num_p_gates, param.prefix, prev, hd.gatexs);
 
     if (gatex_index == 0) {
       // Apply gates before the first checkpoint.
-      ApplyGates(fgates0, 0, loc0[0], simulator, state0p);
-      ApplyGates(fgates1, 0, loc1[0], simulator, state1p);
+      ApplyGates(fgates, 0, loc[0], simulator, state_p);
     } else {
       IO::errorf("invalid prefix %lu for prefix gate index %u.\n",
                  param.prefix, gatex_index - 1);
@@ -375,15 +363,13 @@ struct HybridSimulator final {
     // Branch over root gates on the cut. r encodes the root path.
     for (uint64_t r = 0; r < hd.rmax; ++r) {
       if (hd.rmax > 1) {
-        state_space.Copy(state0p, state0r);
-        state_space.Copy(state1p, state1r);
+        state_space.Copy(state_p, state_r);
       }
 
       if (SetSchmidtMatrices(num_p_gates, num_pr_gates,
                              r, prev, hd.gatexs) == 0) {
         // Apply gates before the second checkpoint.
-        ApplyGates(fgates0, loc0[0], loc0[1], simulator, state0r);
-        ApplyGates(fgates1, loc1[0], loc1[1], simulator, state1r);
+        ApplyGates(fgates, loc[0], loc[1], simulator, state_r);
       } else {
         continue;
       }
@@ -391,32 +377,30 @@ struct HybridSimulator final {
       // Branch over suffix gates on the cut. s encodes the suffix path.
       for (uint64_t s = 0; s < hd.smax; ++s) {
         if (hd.smax > 1) {
-          state_space.Copy(hd.rmax > 1 ? state0r : state0p, state0s);
-          state_space.Copy(hd.rmax > 1 ? state1r : state1p, state1s);
+          state_space.Copy(hd.rmax > 1 ? state_r : state_p, state_s);
         }
 
         if (SetSchmidtMatrices(num_pr_gates, hd.num_gatexs,
                                s, prev, hd.gatexs) == 0) {
           // Apply the rest of the gates.
-          ApplyGates(fgates0, loc0[1], fgates0.size(), simulator, state0s);
-          ApplyGates(fgates1, loc1[1], fgates1.size(), simulator, state1s);
+          ApplyGates(fgates, loc[1], fgates.size(), simulator, state_s);
         } else {
           continue;
         }
 
         auto f = [](unsigned n, unsigned m, uint64_t i,
                     const StateSpace& state_space,
-                    const State& state0, const State& state1,
-                    const std::vector<Index>& indices, Results& results) {
+                    const State& state, uint64_t r, uint64_t s,
+                    const std::vector<unsigned>& indices, Results& results) {
           // TODO: make it faster for the CUDA state space.
-          auto a0 = state_space.GetAmpl(state0, indices[i].i0);
-          auto a1 = state_space.GetAmpl(state1, indices[i].i1);
-          results[i] += a0 * a1;
+          // TODO: Fix indices to only include relevant part.
+          auto a = state_space.GetAmpl(state, indices[i]);
+          results[r][s][i] = a;
         };
 
         // Collect results.
-        for_.Run(results.size(), f,
-                 state_space, *rstate0, *rstate1, indices, results);
+        for_.Run(results[r][s].size(), f,
+                 state_space, *rstate, r, s, indices, results);
       }
     }
 
@@ -572,23 +556,19 @@ struct HybridSimulator final {
   }
 
   template <typename StateSpace>
-  static bool CreateStates(unsigned num_qubits0,unsigned num_qubits1,
+  static bool CreateStates(unsigned num_qubits,
                            const StateSpace& state_space, bool create,
-                           typename StateSpace::State& state0,
-                           typename StateSpace::State& state1,
-                           typename StateSpace::State* (&rstate0),
-                           typename StateSpace::State* (&rstate1)) {
+                           typename StateSpace::State& state,
+                           typename StateSpace::State* (&rstate)) {
     if (create) {
-      state0 = state_space.Create(num_qubits0);
-      state1 = state_space.Create(num_qubits1);
+      state = state_space.Create(num_qubits);
 
-      if (state_space.IsNull(state0) || state_space.IsNull(state1)) {
+      if (state_space.IsNull(state)) {
         IO::errorf("not enough memory: is the number of qubits too large?\n");
         return false;
       }
 
-      rstate0 = &state0;
-      rstate1 = &state1;
+      rstate = &state;
     }
 
     return true;

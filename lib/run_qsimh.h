@@ -33,8 +33,8 @@ struct QSimHRunner final {
 
   using Parameter = typename HybridSimulator::Parameter;
   using HybridData = typename HybridSimulator::HybridData;
-  using Index = typename HybridSimulator::Index;
   using Fuser = typename HybridSimulator::Fuser;
+  using Amplitude = typename std::complex<fp_type>;
 
   /**
    * Evaluates the amplitudes for a given circuit and set of output states.
@@ -98,30 +98,52 @@ struct QSimHRunner final {
     hd.rmax = uint64_t{1} << bits.num_r_bits;
     hd.smax = uint64_t{1} << bits.num_s_bits;
 
-    std::vector<Index> indices;
-    indices.reserve(bitstrings.size());
+    std::vector<unsigned> indices0, indices1;
+    indices0.reserve(bitstrings.size());
+    indices1.reserve(bitstrings.size());
 
-    // TODO: optimize.
+    // Bitstring indices for part 0 and part 1. TODO: optimize.
     for (const auto& bitstring : bitstrings) {
-      Index index{0, 0};
+      unsigned index0 = 0;
+      unsigned index1 = 0;
 
       for (uint64_t i = 0; i < hd.qubit_map.size(); ++i) {
         unsigned m = ((bitstring >> i) & 1) << hd.qubit_map[i];
-        parts[i] ? index.i1 |= m : index.i0 |= m;
+        parts[i] ? index1 |= m : index0 |= m;
       }
 
-      indices.push_back(index);
+      indices0.push_back(index0);
+      indices1.push_back(index1);
     }
 
-    rc = HybridSimulator(param.num_threads).Run(
-        param, factory, hd, parts, fgates0, fgates1, bitstrings, indices, results);
+    std::vector<std::vector<std::vector<Amplitude>>> results0, results1;
 
-    if (rc && param.verbosity > 0) {
+    results0.resize(hd.rmax, std::vector<std::vector<Amplitude>>(hd.smax,
+      std::vector<Amplitude>(bitstrings.size(), Amplitude(0))));
+    results1.resize(hd.rmax, std::vector<std::vector<Amplitude>>(hd.smax,
+      std::vector<Amplitude>(bitstrings.size(), Amplitude(0))));
+
+    bool rc0 = HybridSimulator(param.num_threads).Run(
+        param, factory, hd, parts, fgates0, hd.num_qubits0, bitstrings, indices0, results0);
+
+    bool rc1 = HybridSimulator(param.num_threads).Run(
+        param, factory, hd, parts, fgates1, hd.num_qubits1, bitstrings, indices1, results1);
+
+    for (uint64_t r = 0; r < hd.rmax; ++r) {
+      for (uint64_t s = 0; s < hd.smax; ++s) {
+        for (uint64_t i = 0; i < bitstrings.size(); i++) {
+          results[i] += results0[r][s][i] * results1[r][s][i];
+        }
+      }
+    }
+
+    bool all_finished = rc0 && rc1;
+    if (all_finished && param.verbosity > 0) {
       double t1 = GetTime();
       IO::messagef("time elapsed %g seconds.\n", t1 - t0);
     }
 
-    return rc;
+    return all_finished;
   }
 
  private:
