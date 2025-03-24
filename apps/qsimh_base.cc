@@ -33,14 +33,15 @@
 #include "../lib/util_cpu.h"
 
 constexpr char usage[] = "usage:\n  ./qsimh_base -c circuit_file "
-                         "-d maximum_time -k part1_qubits "
-                         "-w prefix -p num_prefix_gates -r num_root_gates "
+                         "-d maximum_time -k part1_qubits -l part2_qubits "
+                         "-w prefixes -p num_prefix_gates -r num_root_gates "
                          "-t num_threads -v verbosity -z\n";
 
 struct Options {
   std::string circuit_file;
   std::vector<unsigned> part1;
-  uint64_t prefix;
+  std::vector<unsigned> part2;
+  std::vector<uint64_t> prefixes;
   unsigned maxtime = std::numeric_limits<unsigned>::max();
   unsigned num_prefix_gatexs = 0;
   unsigned num_root_gatexs = 0;
@@ -58,7 +59,7 @@ Options GetOptions(int argc, char* argv[]) {
     return std::atoi(word.c_str());
   };
 
-  while ((k = getopt(argc, argv, "c:d:k:w:p:r:t:v:z")) != -1) {
+  while ((k = getopt(argc, argv, "c:d:k:l:w:p:r:t:v:z")) != -1) {
     switch (k) {
       case 'c':
         opt.circuit_file = optarg;
@@ -69,8 +70,11 @@ Options GetOptions(int argc, char* argv[]) {
       case 'k':
         qsim::SplitString(optarg, ',', to_int, opt.part1);
         break;
+      case 'l':
+        qsim::SplitString(optarg, ',', to_int, opt.part2);
+        break;
       case 'w':
-        opt.prefix = std::atol(optarg);
+        qsim::SplitString(optarg, ',', to_int, opt.prefixes);
         break;
       case 'p':
         opt.num_prefix_gatexs = std::atoi(optarg);
@@ -106,10 +110,10 @@ bool ValidateOptions(const Options& opt) {
   return true;
 }
 
-bool ValidatePart1(unsigned num_qubits, const std::vector<unsigned>& part1) {
-  for (std::size_t i = 0; i < part1.size(); ++i) {
-    if (part1[i] >= num_qubits) {
-      qsim::IO::errorf("part 1 qubit indices are too large.\n");
+bool ValidatePart(unsigned num_qubits, const std::vector<unsigned>& part, unsigned part_number) {
+  for (std::size_t i = 0; i < part.size(); ++i) {
+    if (part[i] >= num_qubits) {
+      qsim::IO::errorf("part %d qubit indices are too large.\n", part_number);
       return false;
     }
   }
@@ -118,11 +122,15 @@ bool ValidatePart1(unsigned num_qubits, const std::vector<unsigned>& part1) {
 }
 
 std::vector<unsigned> GetParts(
-    unsigned num_qubits, const std::vector<unsigned>& part1) {
+    unsigned num_qubits, const std::vector<unsigned>& part1, const std::vector<unsigned>& part2) {
   std::vector<unsigned> parts(num_qubits, 0);
 
   for (std::size_t i = 0; i < part1.size(); ++i) {
     parts[part1[i]] = 1;
+  }
+
+  for (std::size_t i = 0; i < part2.size(); ++i) {
+    parts[part2[i]] = 2;
   }
 
   return parts;
@@ -142,10 +150,13 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
-  if (!ValidatePart1(circuit.num_qubits, opt.part1)) {
+  if (!ValidatePart(circuit.num_qubits, opt.part1, 1)) {
     return 1;
   }
-  auto parts = GetParts(circuit.num_qubits, opt.part1);
+  if (!ValidatePart(circuit.num_qubits, opt.part2, 2)) {
+    return 1;
+  }
+  auto parts = GetParts(circuit.num_qubits, opt.part1, opt.part2);
 
   if (opt.denormals_are_zeros) {
     SetFlushToZeroAndDenormalsAreZeros();
@@ -183,7 +194,9 @@ int main(int argc, char* argv[]) {
   using Runner = QSimHRunner<IO, HybridSimulator>;
 
   Runner::Parameter param;
-  param.prefix = opt.prefix;
+  param.prefix0t1 = opt.prefixes[0];
+  param.prefix1t2 = opt.prefixes[1];
+  param.prefix2t0 = opt.prefixes[2];
   param.num_prefix_gatexs = opt.num_prefix_gatexs;
   param.num_root_gatexs = opt.num_root_gatexs;
   param.num_threads = opt.num_threads;

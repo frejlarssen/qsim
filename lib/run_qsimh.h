@@ -70,11 +70,11 @@ struct QSimHRunner final {
       return false;
     }
 
-    if (hd.num_gatexs < param.num_prefix_gatexs + param.num_root_gatexs) {
+    if (hd.num_gatexs0t1 + hd.num_gatexs1t2 + hd.num_gatexs2t0 < param.num_prefix_gatexs + param.num_root_gatexs) {
       IO::errorf("error: num_prefix_gates (%u) plus num_root gates (%u) is "
                  "greater than num_gates_on_the_cut (%u).\n",
                  param.num_prefix_gatexs, param.num_root_gatexs,
-                 hd.num_gatexs);
+                 hd.num_gatexs0t1 + hd.num_gatexs1t2 + hd.num_gatexs2t0);
       return false;
     }
 
@@ -92,8 +92,13 @@ struct QSimHRunner final {
       return false;
     }
 
+    auto fgates2 = Fuser::FuseGates(param, hd.num_qubits2, hd.gates2);
+    if (fgates2.size() == 0 && hd.gates2.size() > 0) {
+      return false;
+    }
+
     rc = HybridSimulator(param.num_threads).Run(
-        param, factory, hd, parts, fgates0, fgates1, bitstrings, results);
+        param, factory, hd, parts, fgates0, fgates1, fgates2, bitstrings, results);
 
     if (rc && param.verbosity > 0) {
       double t1 = GetTime();
@@ -106,10 +111,12 @@ struct QSimHRunner final {
  private:
   static void PrintInfo(const Parameter& param, const HybridData& hd) {
     unsigned num_suffix_gates =
-        hd.num_gatexs - param.num_prefix_gatexs - param.num_root_gatexs;
+        hd.num_gatexs0t1 + hd.num_gatexs1t2 + hd.num_gatexs2t0 - param.num_prefix_gatexs - param.num_root_gatexs;
 
     IO::messagef("part 0: %u, part 1: %u\n", hd.num_qubits0, hd.num_qubits1);
-    IO::messagef("%u gates on the cut\n", hd.num_gatexs);
+    IO::messagef("%u gates on the cut 0t1\n", hd.num_gatexs0t1);
+    IO::messagef("%u gates on the cut 1t2\n", hd.num_gatexs1t2);
+    IO::messagef("%u gates on the cut 2t0\n", hd.num_gatexs2t0);
     IO::messagef("breakup: %up+%ur+%us\n", param.num_prefix_gatexs,
                  param.num_root_gatexs, num_suffix_gates);
   }
