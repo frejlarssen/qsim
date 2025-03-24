@@ -100,6 +100,14 @@ struct HybridSimulator final {
      * Number of gates on the cut.
      */
     unsigned num_gatexs;
+    /**
+     * Number of paths in root
+     */
+    uint64_t rmax;
+    /**
+     * Number of paths in suffix
+     */
+    uint64_t smax;
   };
 
   /**
@@ -122,6 +130,12 @@ struct HybridSimulator final {
      */
     unsigned num_root_gatexs;
     unsigned num_threads;
+  };
+
+  // Bitstring indices for part 0 and part 1.
+  struct Index {
+    unsigned i0;
+    unsigned i1;
   };
 
   template <typename... Args>
@@ -296,7 +310,8 @@ struct HybridSimulator final {
            HybridData& hd, const std::vector<unsigned>& parts,
            const std::vector<GateFused>& fgates0,
            const std::vector<GateFused>& fgates1,
-           const std::vector<uint64_t>& bitstrings, Results& results) const {
+           const std::vector<uint64_t>& bitstrings,
+           std::vector<Index> indices, Results& results) const {
     using Simulator = typename Factory::Simulator;
     using StateSpace = typename Simulator::StateSpace;
     using State = typename StateSpace::State;
@@ -304,33 +319,8 @@ struct HybridSimulator final {
     unsigned num_p_gates = param.num_prefix_gatexs;
     unsigned num_pr_gates = num_p_gates + param.num_root_gatexs;
 
-    auto bits = CountSchmidtBits(param, hd.gatexs);
-
-    uint64_t rmax = uint64_t{1} << bits.num_r_bits;
-    uint64_t smax = uint64_t{1} << bits.num_s_bits;
-
     auto loc0 = CheckpointLocations(param, fgates0);
     auto loc1 = CheckpointLocations(param, fgates1);
-
-    struct Index {
-      unsigned i0;
-      unsigned i1;
-    };
-
-    std::vector<Index> indices;
-    indices.reserve(bitstrings.size());
-
-    // Bitstring indices for part 0 and part 1. TODO: optimize.
-    for (const auto& bitstring : bitstrings) {
-      Index index{0, 0};
-
-      for (uint64_t i = 0; i < hd.qubit_map.size(); ++i) {
-        unsigned m = ((bitstring >> i) & 1) << hd.qubit_map[i];
-        parts[i] ? index.i1 |= m : index.i0 |= m;
-      }
-
-      indices.push_back(index);
-    }
 
     StateSpace state_space = factory.CreateStateSpace();
 
@@ -351,12 +341,12 @@ struct HybridSimulator final {
       return false;
     }
 
-    if (!CreateStates(hd.num_qubits0, hd.num_qubits1, state_space, rmax > 1,
+    if (!CreateStates(hd.num_qubits0, hd.num_qubits1, state_space, hd.rmax > 1,
                       state0r, state1r, rstate0, rstate1)) {
       return false;
     }
 
-    if (!CreateStates(hd.num_qubits0, hd.num_qubits1, state_space, smax > 1,
+    if (!CreateStates(hd.num_qubits0, hd.num_qubits1, state_space, hd.smax > 1,
                       state0s, state1s, rstate0, rstate1)) {
       return false;
     }
@@ -383,8 +373,8 @@ struct HybridSimulator final {
     }
 
     // Branch over root gates on the cut. r encodes the root path.
-    for (uint64_t r = 0; r < rmax; ++r) {
-      if (rmax > 1) {
+    for (uint64_t r = 0; r < hd.rmax; ++r) {
+      if (hd.rmax > 1) {
         state_space.Copy(state0p, state0r);
         state_space.Copy(state1p, state1r);
       }
@@ -399,10 +389,10 @@ struct HybridSimulator final {
       }
 
       // Branch over suffix gates on the cut. s encodes the suffix path.
-      for (uint64_t s = 0; s < smax; ++s) {
-        if (smax > 1) {
-          state_space.Copy(rmax > 1 ? state0r : state0p, state0s);
-          state_space.Copy(rmax > 1 ? state1r : state1p, state1s);
+      for (uint64_t s = 0; s < hd.smax; ++s) {
+        if (hd.smax > 1) {
+          state_space.Copy(hd.rmax > 1 ? state0r : state0p, state0s);
+          state_space.Copy(hd.rmax > 1 ? state1r : state1p, state1s);
         }
 
         if (SetSchmidtMatrices(num_pr_gates, hd.num_gatexs,
@@ -431,6 +421,33 @@ struct HybridSimulator final {
     }
 
     return true;
+  }
+
+  struct Bits {
+    unsigned num_p_bits;
+    unsigned num_r_bits;
+    unsigned num_s_bits;
+  };
+
+  static Bits CountSchmidtBits(
+      const Parameter& param, const std::vector<GateX>& gatexs) {
+    Bits bits{0, 0, 0};
+
+    unsigned num_p_gates = param.num_prefix_gatexs;
+    unsigned num_pr_gates = num_p_gates + param.num_root_gatexs;
+
+    for (std::size_t i = 0; i < gatexs.size(); ++i) {
+      const auto& gatex = gatexs[i];
+      if (i < num_p_gates) {
+        bits.num_p_bits += gatex.schmidt_bits;
+      } else if (i < num_pr_gates) {
+        bits.num_r_bits += gatex.schmidt_bits;
+      } else {
+        bits.num_s_bits += gatex.schmidt_bits;
+      }
+    }
+
+    return bits;
   }
 
  private:
@@ -470,33 +487,6 @@ struct HybridSimulator final {
     }
 
     return loc;
-  }
-
-  struct Bits {
-    unsigned num_p_bits;
-    unsigned num_r_bits;
-    unsigned num_s_bits;
-  };
-
-  static Bits CountSchmidtBits(
-      const Parameter& param, const std::vector<GateX>& gatexs) {
-    Bits bits{0, 0, 0};
-
-    unsigned num_p_gates = param.num_prefix_gatexs;
-    unsigned num_pr_gates = num_p_gates + param.num_root_gatexs;
-
-    for (std::size_t i = 0; i < gatexs.size(); ++i) {
-      const auto& gatex = gatexs[i];
-      if (i < num_p_gates) {
-        bits.num_p_bits += gatex.schmidt_bits;
-      } else if (i < num_pr_gates) {
-        bits.num_r_bits += gatex.schmidt_bits;
-      } else {
-        bits.num_s_bits += gatex.schmidt_bits;
-      }
-    }
-
-    return bits;
   }
 
   static unsigned SetSchmidtMatrices(std::size_t i0, std::size_t i1,

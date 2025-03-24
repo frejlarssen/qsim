@@ -33,6 +33,7 @@ struct QSimHRunner final {
 
   using Parameter = typename HybridSimulator::Parameter;
   using HybridData = typename HybridSimulator::HybridData;
+  using Index = typename HybridSimulator::Index;
   using Fuser = typename HybridSimulator::Fuser;
 
   /**
@@ -92,8 +93,28 @@ struct QSimHRunner final {
       return false;
     }
 
+    auto bits = HybridSimulator::CountSchmidtBits(param, hd.gatexs);
+
+    hd.rmax = uint64_t{1} << bits.num_r_bits;
+    hd.smax = uint64_t{1} << bits.num_s_bits;
+
+    std::vector<Index> indices;
+    indices.reserve(bitstrings.size());
+
+    // TODO: optimize.
+    for (const auto& bitstring : bitstrings) {
+      Index index{0, 0};
+
+      for (uint64_t i = 0; i < hd.qubit_map.size(); ++i) {
+        unsigned m = ((bitstring >> i) & 1) << hd.qubit_map[i];
+        parts[i] ? index.i1 |= m : index.i0 |= m;
+      }
+
+      indices.push_back(index);
+    }
+
     rc = HybridSimulator(param.num_threads).Run(
-        param, factory, hd, parts, fgates0, fgates1, bitstrings, results);
+        param, factory, hd, parts, fgates0, fgates1, bitstrings, indices, results);
 
     if (rc && param.verbosity > 0) {
       double t1 = GetTime();
