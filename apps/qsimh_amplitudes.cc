@@ -177,9 +177,9 @@ int main(int argc, char* argv[]) {
   int world_rank;
   MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
-  if (world_size != 3) {
+  if (world_size != 2) {
     if (world_rank == 0) {
-      IO::errorf("This program must be run with 3 processes.\n");
+      IO::errorf("This program must be run with 2 processes.\n");
     }
     MPI_Finalize();
     return 1;

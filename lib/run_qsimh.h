@@ -72,6 +72,7 @@ struct QSimHRunner final {
     bool rc = HybridSimulator::SplitLattice(parts, circuit.gates, hd);
 
     if (!rc) {
+      //TODO: Tell the other rank that there was an error
       return false;
     }
 
@@ -80,6 +81,7 @@ struct QSimHRunner final {
                  "greater than num_gates_on_the_cut (%u).\n",
                  param.num_prefix_gatexs, param.num_root_gatexs,
                  hd.num_gatexs);
+      //TODO: Tell the other rank that there was an error
       return false;
     }
 
@@ -90,14 +92,16 @@ struct QSimHRunner final {
     std::vector<typename Fuser::GateFused> fgates0;
     std::vector<typename Fuser::GateFused> fgates1;
 
-    if (world_rank == 1) {
+    if (world_rank == 0) {
       fgates0 = Fuser::FuseGates(param, hd.num_qubits0, hd.gates0);
       if (fgates0.size() == 0 && hd.gates0.size() > 0) {
+        //TODO: Tell the other rank that there was an error
         return false;
       }
-    } else if (world_rank == 2) {
+    } else if (world_rank == 1) {
       fgates1 = Fuser::FuseGates(param, hd.num_qubits1, hd.gates1);
       if (fgates1.size() == 0 && hd.gates1.size() > 0) {
+        //TODO: Tell the other rank that there was an error
         return false;
       }
     }
@@ -129,33 +133,22 @@ struct QSimHRunner final {
     uint64_t rblock_size = hd.smax * sblock_size;
     uint64_t res_size    = hd.rmax * rblock_size;
 
-    std::vector<Amplitude> results_part;
-    std::vector<Amplitude> results_all;
+    std::vector<Amplitude> results;
 
     try {
-      // TODO: Check if error is caught
-      if (world_rank == 0) {
-          // Initialize results_part on rank 0 with neutral values for MPI_PROD
-          // TODO: Use only two ranks (since results_part is large)
-          results_part.resize(res_size, Amplitude(1.0f, 0.0f));
-          results_all.resize(res_size, Amplitude(0.0f, 0.0f));
-      } else {
-          results_part.resize(res_size, Amplitude(0.0f, 0.0f));
-      }
+      results.resize(res_size, Amplitude(0.0f, 0.0f));
     } catch (const std::bad_alloc& e) {
-      IO::errorf("rank %d: Too many gates on root and suffix cut to resize vectors\n");
+      IO::errorf("rank %d: Too many gates on root and suffix cut to resize vector\n", world_rank);
       return false;
     }
 
     bool rc_part;
     if (world_rank == 0) {
-      rc_part = true;
+      rc_part = HybridSimulator(param.num_threads).Run(
+        param, factory, hd, parts, fgates0, hd.num_qubits0, bitstrings, indices0, results);
     } else if (world_rank == 1) {
       rc_part = HybridSimulator(param.num_threads).Run(
-        param, factory, hd, parts, fgates0, hd.num_qubits0, bitstrings, indices0, results_part);
-    } else if (world_rank == 2) {
-      rc_part = HybridSimulator(param.num_threads).Run(
-        param, factory, hd, parts, fgates1, hd.num_qubits1, bitstrings, indices1, results_part);
+        param, factory, hd, parts, fgates1, hd.num_qubits1, bitstrings, indices1, results);
     }
 
     bool rc_all = false;
@@ -165,8 +158,13 @@ struct QSimHRunner final {
       return false;
     }
 
-    MPI_Reduce(results_part.data(), (world_rank == 0 ? results_all.data() : nullptr),
-               res_size, MPI_C_FLOAT_COMPLEX, MPI_PROD, 0, MPI_COMM_WORLD);
+    if (world_rank == 0) {
+        MPI_Reduce(MPI_IN_PLACE, results.data(), res_size, 
+                   MPI_C_FLOAT_COMPLEX, MPI_PROD, 0, MPI_COMM_WORLD);
+    } else {
+        MPI_Reduce(results.data(), nullptr, res_size,
+                   MPI_C_FLOAT_COMPLEX, MPI_PROD, 0, MPI_COMM_WORLD);
+    }
 
     if (world_rank > 0) {
       return true;
@@ -177,7 +175,7 @@ struct QSimHRunner final {
       for (uint64_t s = 0; s < hd.smax; ++s) {
         for (uint64_t i = 0; i < bitstrings.size(); i++) {
           index = r * rblock_size + s * sblock_size + i;
-          results_accumulated[i] += results_all[index];
+          results_accumulated[i] += results[index];
         }
       }
     }
