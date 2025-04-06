@@ -285,6 +285,7 @@ struct HybridSimulator final {
   }
 
   /**
+   * TODO: Update documentation
    * Runs the hybrid simulator on a sectioned lattice.
    * @param param Options for parallelism and logging. Also specifies the size
    *   of the 'prefix' and 'root' sections of the lattice.
@@ -322,6 +323,9 @@ struct HybridSimulator final {
     State state_p = state_space.Null();
     State state_r = state_space.Null();
     State state_s = state_space.Null();
+
+    uint64_t sblock_size = bitstrings.size();
+    uint64_t rblock_size = hd.smax * sblock_size;
 
     // Create states.
 
@@ -390,17 +394,19 @@ struct HybridSimulator final {
 
         auto f = [](unsigned n, unsigned m, uint64_t i,
                     const StateSpace& state_space,
-                    const State& state, uint64_t r, uint64_t s,
+                    const State& state, uint64_t offset,
                     const std::vector<unsigned>& indices, Results& results) {
           // TODO: make it faster for the CUDA state space.
           // TODO: Fix indices to only include relevant part.
           auto a = state_space.GetAmpl(state, indices[i]);
-          results[r][s][i] = a;
+          results[offset+i] = a;
         };
 
-        // Collect results.
-        for_.Run(results[r][s].size(), f,
-                 state_space, *rstate, r, s, indices, results);
+        uint64_t offset = r*rblock_size + s*sblock_size;
+
+        // Collect results for all bitstrings.
+        for_.Run(indices.size(), f,
+                 state_space, *rstate, offset, indices, results);
       }
     }
 

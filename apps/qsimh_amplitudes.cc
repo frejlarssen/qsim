@@ -169,6 +169,22 @@ bool WriteAmplitudes(const std::string& file,
 int main(int argc, char* argv[]) {
   using namespace qsim;
 
+  MPI_Init(&argc, &argv);
+
+  int world_size;
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+  int world_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+
+  if (world_size != 3) {
+    if (world_rank == 0) {
+      IO::errorf("This program must be run with 3 processes.\n");
+    }
+    MPI_Finalize();
+    return 1;
+  }
+
   auto opt = GetOptions(argc, argv);
   if (!ValidateOptions(opt)) {
     return 1;
@@ -229,9 +245,13 @@ int main(int argc, char* argv[]) {
   Factory factory(opt.num_threads);
 
   if (Runner::Run(param, factory, circuit, parts, bitstrings, results)) {
-    WriteAmplitudes(opt.output_file, bitstrings, results);
-    IO::messagef("all done.\n");
+    if (world_rank == 0) {
+      WriteAmplitudes(opt.output_file, bitstrings, results);
+      IO::messagef("all done.\n");
+    }
   }
+
+  MPI_Finalize();
 
   return 0;
 }

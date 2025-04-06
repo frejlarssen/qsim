@@ -4,7 +4,7 @@ EIGEN_URL = "https://gitlab.com/libeigen/eigen/-/archive/"
 TARGETS = qsim
 TESTS = run-cxx-tests
 
-CXX=g++
+CXX=mpic++
 NVCC=nvcc
 HIPCC=hipcc
 

@@ -17,6 +17,7 @@
 
 #include <string>
 #include <vector>
+#include <mpi.h>
 
 #include "hybrid.h"
 #include "util.h"
@@ -52,7 +53,10 @@ struct QSimHRunner final {
   static bool Run(const Parameter& param, const Factory& factory,
                   const Circuit& circuit, const std::vector<unsigned>& parts,
                   const std::vector<uint64_t>& bitstrings,
-                  std::vector<std::complex<fp_type>>& results) {
+                  std::vector<Amplitude>& results_accumulated) {
+    int world_rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+
     if (circuit.num_qubits != parts.size()) {
       IO::errorf("parts size is not equal to the number of qubits.");
       return false;
@@ -79,18 +83,23 @@ struct QSimHRunner final {
       return false;
     }
 
-    if (param.verbosity > 0) {
+    if (param.verbosity > 0 && world_rank == 0) {
       PrintInfo(param, hd);
     }
 
-    auto fgates0 = Fuser::FuseGates(param, hd.num_qubits0, hd.gates0);
-    if (fgates0.size() == 0 && hd.gates0.size() > 0) {
-      return false;
-    }
+    std::vector<typename Fuser::GateFused> fgates0;
+    std::vector<typename Fuser::GateFused> fgates1;
 
-    auto fgates1 = Fuser::FuseGates(param, hd.num_qubits1, hd.gates1);
-    if (fgates1.size() == 0 && hd.gates1.size() > 0) {
-      return false;
+    if (world_rank == 1) {
+      fgates0 = Fuser::FuseGates(param, hd.num_qubits0, hd.gates0);
+      if (fgates0.size() == 0 && hd.gates0.size() > 0) {
+        return false;
+      }
+    } else if (world_rank == 2) {
+      fgates1 = Fuser::FuseGates(param, hd.num_qubits1, hd.gates1);
+      if (fgates1.size() == 0 && hd.gates1.size() > 0) {
+        return false;
+      }
     }
 
     auto bits = HybridSimulator::CountSchmidtBits(param, hd.gatexs);
@@ -116,34 +125,68 @@ struct QSimHRunner final {
       indices1.push_back(index1);
     }
 
-    std::vector<std::vector<std::vector<Amplitude>>> results0, results1;
+    uint64_t sblock_size = bitstrings.size();
+    uint64_t rblock_size = hd.smax * sblock_size;
+    uint64_t res_size    = hd.rmax * rblock_size;
 
-    results0.resize(hd.rmax, std::vector<std::vector<Amplitude>>(hd.smax,
-      std::vector<Amplitude>(bitstrings.size(), Amplitude(0))));
-    results1.resize(hd.rmax, std::vector<std::vector<Amplitude>>(hd.smax,
-      std::vector<Amplitude>(bitstrings.size(), Amplitude(0))));
+    std::vector<Amplitude> results_part;
+    std::vector<Amplitude> results_all;
 
-    bool rc0 = HybridSimulator(param.num_threads).Run(
-        param, factory, hd, parts, fgates0, hd.num_qubits0, bitstrings, indices0, results0);
+    try {
+      // TODO: Check if error is caught
+      if (world_rank == 0) {
+          // Initialize results_part on rank 0 with neutral values for MPI_PROD
+          // TODO: Use only two ranks (since results_part is large)
+          results_part.resize(res_size, Amplitude(1.0f, 0.0f));
+          results_all.resize(res_size, Amplitude(0.0f, 0.0f));
+      } else {
+          results_part.resize(res_size, Amplitude(0.0f, 0.0f));
+      }
+    } catch (const std::bad_alloc& e) {
+      IO::errorf("rank %d: Too many gates on root and suffix cut to resize vectors\n");
+      return false;
+    }
 
-    bool rc1 = HybridSimulator(param.num_threads).Run(
-        param, factory, hd, parts, fgates1, hd.num_qubits1, bitstrings, indices1, results1);
+    bool rc_part;
+    if (world_rank == 0) {
+      rc_part = true;
+    } else if (world_rank == 1) {
+      rc_part = HybridSimulator(param.num_threads).Run(
+        param, factory, hd, parts, fgates0, hd.num_qubits0, bitstrings, indices0, results_part);
+    } else if (world_rank == 2) {
+      rc_part = HybridSimulator(param.num_threads).Run(
+        param, factory, hd, parts, fgates1, hd.num_qubits1, bitstrings, indices1, results_part);
+    }
 
+    bool rc_all = false;
+    MPI_Reduce(&rc_part, &rc_all, 1, MPI_C_BOOL, MPI_LAND, 0, MPI_COMM_WORLD);
+
+    if ((world_rank == 0 && !rc_all) || (world_rank > 0 && !rc_part)) {
+      return false;
+    }
+
+    MPI_Reduce(results_part.data(), (world_rank == 0 ? results_all.data() : nullptr),
+               res_size, MPI_C_FLOAT_COMPLEX, MPI_PROD, 0, MPI_COMM_WORLD);
+
+    if (world_rank > 0) {
+      return true;
+    }
+
+    uint64_t index;
     for (uint64_t r = 0; r < hd.rmax; ++r) {
       for (uint64_t s = 0; s < hd.smax; ++s) {
         for (uint64_t i = 0; i < bitstrings.size(); i++) {
-          results[i] += results0[r][s][i] * results1[r][s][i];
+          index = r * rblock_size + s * sblock_size + i;
+          results_accumulated[i] += results_all[index];
         }
       }
     }
 
-    bool all_finished = rc0 && rc1;
-    if (all_finished && param.verbosity > 0) {
+    if (param.verbosity > 0) {
       double t1 = GetTime();
       IO::messagef("time elapsed %g seconds.\n", t1 - t0);
     }
-
-    return all_finished;
+    return true;
   }
 
  private:
