@@ -158,15 +158,45 @@ struct QSimHRunner final {
       return false;
     }
 
+    report_memory_usage(world_rank, "Before MPI_Reduce of results");
+
     if (world_rank == 0) {
-        MPI_Reduce(MPI_IN_PLACE, results.data(), res_size, 
-                   MPI_C_FLOAT_COMPLEX, MPI_PROD, 0, MPI_COMM_WORLD);
-    } else {
-        MPI_Reduce(results.data(), nullptr, res_size,
-                   MPI_C_FLOAT_COMPLEX, MPI_PROD, 0, MPI_COMM_WORLD);
+        IO::messagef("Total size to reduce: %lu elements (%lu MB)\n", res_size,
+                      (res_size * sizeof(Amplitude)) / (1024 * 1024));
+    }
+
+    // Process results in chunks to reduce memory usage
+    // TODO: Parameterize chunk size or num_chunks?
+    uint64_t chunk_size = res_size / 2000;
+    uint64_t num_chunks = (res_size + chunk_size - 1) / chunk_size;
+
+    if (world_rank == 0 && param.verbosity > 0) {
+        IO::messagef("Reducing results in %zu chunks of %zu elements each (%.1f MB per chunk)...\n", 
+                     num_chunks, chunk_size, (chunk_size * sizeof(Amplitude)) / (1024.0 * 1024.0));
+    }
+
+    for (uint64_t chunk = 0; chunk < num_chunks; ++chunk) {
+        uint64_t start = chunk * chunk_size;
+        uint64_t end = std::min(start + chunk_size, res_size);
+        uint64_t count = end - start;
+
+        if (world_rank == 0 && param.verbosity > 0) {
+            if (chunk % 500 == 0 || chunk == num_chunks - 1) {
+                IO::messagef("  Processing chunk %zu/%zu\n", chunk + 1, num_chunks);
+            }
+        }
+
+        if (world_rank == 0) {
+            MPI_Reduce(MPI_IN_PLACE, results.data() + start, count,
+                       MPI_C_FLOAT_COMPLEX, MPI_PROD, 0, MPI_COMM_WORLD);
+        } else {
+            MPI_Reduce(results.data() + start, nullptr, count,
+                       MPI_C_FLOAT_COMPLEX, MPI_PROD, 0, MPI_COMM_WORLD);
+        }
     }
 
     if (world_rank > 0) {
+      report_memory_usage(world_rank, "Total memory usage");
       return true;
     }
 
@@ -179,6 +209,8 @@ struct QSimHRunner final {
         }
       }
     }
+
+    report_memory_usage(world_rank, "Total memory usage");
 
     if (param.verbosity > 0) {
       double t1 = GetTime();

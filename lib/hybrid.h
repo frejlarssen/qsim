@@ -19,11 +19,22 @@
 #include <array>
 #include <complex>
 #include <vector>
+#include <sys/resource.h>
 
 #include "gate.h"
 #include "gate_appl.h"
 
 namespace qsim {
+
+void report_memory_usage(int rank, const char* phase = nullptr) {
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+    if (phase) {
+        printf("Rank %d [%s]: Memory usage: %ld KB\n", rank, phase, usage.ru_maxrss);
+    } else {
+        printf("Rank %d: Memory usage: %ld KB\n", rank, usage.ru_maxrss);
+    }
+}
 
 /**
  * Hybrid Feynman-Schrodinger simulator.
