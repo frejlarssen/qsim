@@ -255,11 +255,11 @@ int main(int argc, char* argv[]) {
 
   std::string output_file;
   if (opt.output_file == "auto") {
-    std::size_t buf_size = std::snprintf(nullptr, 0, "ampl_q%d_d%d_p%d_r%d_num_prefix_values=%ld", circuit.num_qubits, opt.maxtime, opt.num_prefix_gatexs, opt.num_root_gatexs, num_prefix_values) + 1;
+    std::size_t buf_size = std::snprintf(nullptr, 0, "ampl_q%d_d%d_p%d_r%d_num_prefix_values=%d", circuit.num_qubits, opt.maxtime, opt.num_prefix_gatexs, opt.num_root_gatexs, num_prefix_values) + 1;
     if( buf_size <= 0 ){ printf("Error in output file formatting\n"); }
     auto size = static_cast<size_t>( buf_size );
     std::unique_ptr<char[]> buf( new char[ size ] );
-    std::snprintf( buf.get(), size, "ampl_q%d_d%d_p%d_r%d_num_prefix_values=%ld", circuit.num_qubits, opt.maxtime, opt.num_prefix_gatexs, opt.num_root_gatexs, num_prefix_values);
+    std::snprintf( buf.get(), size, "ampl_q%d_d%d_p%d_r%d_num_prefix_values=%d", circuit.num_qubits, opt.maxtime, opt.num_prefix_gatexs, opt.num_root_gatexs, num_prefix_values);
     output_file = std::string( buf.get(), buf.get() + size - 1 );
   }
   else {
