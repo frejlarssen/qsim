@@ -53,9 +53,10 @@ struct QSimHRunner final {
   static bool Run(const Parameter& param, const Factory& factory,
                   const Circuit& circuit, const std::vector<unsigned>& parts,
                   const std::vector<uint64_t>& bitstrings,
-                  std::vector<Amplitude>& results_accumulated) {
-    int world_rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+                  std::vector<Amplitude>& results_accumulated,
+                  MPI_Comm group_comm) {
+    int group_rank;
+    MPI_Comm_rank(group_comm, &group_rank);
 
     if (circuit.num_qubits != parts.size()) {
       IO::errorf("parts size is not equal to the number of qubits.");
@@ -85,20 +86,20 @@ struct QSimHRunner final {
       return false;
     }
 
-    if (param.verbosity > 0 && world_rank == 0) {
+    if (param.verbosity > 0 && group_rank == 0) {
       PrintInfo(param, hd);
     }
 
     std::vector<typename Fuser::GateFused> fgates0;
     std::vector<typename Fuser::GateFused> fgates1;
 
-    if (world_rank == 0) {
+    if (group_rank == 0) {
       fgates0 = Fuser::FuseGates(param, hd.num_qubits0, hd.gates0);
       if (fgates0.size() == 0 && hd.gates0.size() > 0) {
         //TODO: Tell the other rank that there was an error
         return false;
       }
-    } else if (world_rank == 1) {
+    } else if (group_rank == 1) {
       fgates1 = Fuser::FuseGates(param, hd.num_qubits1, hd.gates1);
       if (fgates1.size() == 0 && hd.gates1.size() > 0) {
         //TODO: Tell the other rank that there was an error
@@ -138,29 +139,29 @@ struct QSimHRunner final {
     try {
       results.resize(res_size, Amplitude(0.0f, 0.0f));
     } catch (const std::bad_alloc& e) {
-      IO::errorf("rank %d: Too many gates on root and suffix cut to resize vector\n", world_rank);
+      IO::errorf("rank %d: Too many gates on root and suffix cut to resize vector\n", group_rank);
       return false;
     }
 
     bool rc_part;
-    if (world_rank == 0) {
+    if (group_rank == 0) {
       rc_part = HybridSimulator(param.num_threads).Run(
         param, factory, hd, parts, fgates0, hd.num_qubits0, bitstrings, indices0, results);
-    } else if (world_rank == 1) {
+    } else if (group_rank == 1) {
       rc_part = HybridSimulator(param.num_threads).Run(
         param, factory, hd, parts, fgates1, hd.num_qubits1, bitstrings, indices1, results);
     }
 
     bool rc_all = false;
-    MPI_Reduce(&rc_part, &rc_all, 1, MPI_C_BOOL, MPI_LAND, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&rc_part, &rc_all, 1, MPI_C_BOOL, MPI_LAND, 0, group_comm);
 
-    if ((world_rank == 0 && !rc_all) || (world_rank > 0 && !rc_part)) {
+    if ((group_rank == 0 && !rc_all) || (group_rank > 0 && !rc_part)) {
       return false;
     }
 
-    report_memory_usage(world_rank, "Before MPI_Reduce of results");
+    report_memory_usage(group_rank, "Before MPI_Reduce of results");
 
-    if (world_rank == 0) {
+    if (group_rank == 0) {
         IO::messagef("Total size to reduce: %lu elements (%lu MB)\n", res_size,
                       (res_size * sizeof(Amplitude)) / (1024 * 1024));
     }
@@ -170,7 +171,7 @@ struct QSimHRunner final {
     uint64_t chunk_size = res_size / 2000;
     uint64_t num_chunks = (res_size + chunk_size - 1) / chunk_size;
 
-    if (world_rank == 0 && param.verbosity > 0) {
+    if (group_rank == 0 && param.verbosity > 0) {
         IO::messagef("Reducing results in %zu chunks of %zu elements each (%.1f MB per chunk)...\n", 
                      num_chunks, chunk_size, (chunk_size * sizeof(Amplitude)) / (1024.0 * 1024.0));
     }
@@ -180,23 +181,23 @@ struct QSimHRunner final {
         uint64_t end = std::min(start + chunk_size, res_size);
         uint64_t count = end - start;
 
-        if (world_rank == 0 && param.verbosity > 0) {
+        if (group_rank == 0 && param.verbosity > 0) {
             if (chunk % 500 == 0 || chunk == num_chunks - 1) {
                 IO::messagef("  Processing chunk %zu/%zu\n", chunk + 1, num_chunks);
             }
         }
 
-        if (world_rank == 0) {
+        if (group_rank == 0) {
             MPI_Reduce(MPI_IN_PLACE, results.data() + start, count,
-                       MPI_C_FLOAT_COMPLEX, MPI_PROD, 0, MPI_COMM_WORLD);
+                       MPI_C_FLOAT_COMPLEX, MPI_PROD, 0, group_comm);
         } else {
             MPI_Reduce(results.data() + start, nullptr, count,
-                       MPI_C_FLOAT_COMPLEX, MPI_PROD, 0, MPI_COMM_WORLD);
+                       MPI_C_FLOAT_COMPLEX, MPI_PROD, 0, group_comm);
         }
     }
 
-    if (world_rank > 0) {
-      report_memory_usage(world_rank, "Total memory usage");
+    if (group_rank > 0) {
+      report_memory_usage(group_rank, "Total memory usage");
       return true;
     }
 
@@ -210,7 +211,7 @@ struct QSimHRunner final {
       }
     }
 
-    report_memory_usage(world_rank, "Total memory usage");
+    report_memory_usage(group_rank, "Total memory usage");
 
     if (param.verbosity > 0) {
       double t1 = GetTime();
