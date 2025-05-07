@@ -281,7 +281,7 @@ int main(int argc, char* argv[]) {
     // Only group rank 0 processes (one for each prefix) participate in the final reduction
     if (group_rank == 0) {
       int rank0_group_rank;
-      MPI_Comm_rank(group_comm, &rank0_group_rank);
+      MPI_Comm_rank(rank0_comm, &rank0_group_rank);
 
       int rank0_size;
       MPI_Comm_size(rank0_comm, &rank0_size);
