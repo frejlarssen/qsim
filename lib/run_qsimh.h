@@ -77,8 +77,7 @@ struct QSimHRunner final {
                  hd.num_gatexs);
       return false;
     }
-
-    if (param.verbosity > 0) {
+    if (param.verbosity > 1) {
       PrintInfo(param, hd);
     }
 
@@ -97,7 +96,7 @@ struct QSimHRunner final {
 
     if (rc && param.verbosity > 0) {
       double t1 = GetTime();
-      IO::messagef("time elapsed %g seconds.\n", t1 - t0);
+      IO::messagef("prefix %d: time elapsed %g seconds.\n", param.prefix, t1 - t0);
     }
 
     return rc;

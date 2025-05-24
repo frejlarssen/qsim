@@ -233,13 +233,23 @@ int main(int argc, char* argv[]) {
   param.num_prefix_gatexs = opt.num_prefix_gatexs;
   param.num_root_gatexs = opt.num_root_gatexs;
   param.num_threads = opt.num_threads;
-  param.verbosity = opt.verbosity;
+  if (world_rank == 0) { // Rank 0 has specified verbosity.
+    param.verbosity = opt.verbosity;
+  }
+  else { // Other ranks have max verbosity 1.
+    param.verbosity = std::min<unsigned>(opt.verbosity, 1);
+  }
 
   std::vector<std::complex<Factory::fp_type>> results(bitstrings.size(), 0);
 
   Factory factory(opt.num_threads);
 
   if (Runner::Run(param, factory, circuit, parts, bitstrings, results)) {
+    double t_post_0 = 0.0;
+    if (param.verbosity > 0 && world_rank == 0) {
+      t_post_0 = GetTime();
+    }
+
     // Sum results across all paths if we have more than one
     if (world_size > 1) {
       // Use MPI_IN_PLACE only for rank 0
@@ -254,6 +264,10 @@ int main(int argc, char* argv[]) {
 
     // The root process writes the final result
     if (world_rank == 0) {
+      if (param.verbosity > 0) {
+        double t_post_1 = GetTime();
+        IO::messagef("post-processing: time elapsed %g seconds.\n", t_post_1 - t_post_0);
+      }
       WriteAmplitudes(opt.output_file, bitstrings, results);
       IO::messagef("all done.\n");
     }
