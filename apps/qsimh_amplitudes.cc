@@ -20,6 +20,7 @@
 #include <sstream>
 #include <string>
 #include <vector>
+#include <mpi.h>
 
 #include "../lib/bitstring.h"
 #include "../lib/circuit_qsim_parser.h"
@@ -34,7 +35,7 @@
 
 constexpr char usage[] = "usage:\n  ./qsimh_amplitudes -c circuit_file "
                          "-d maxtime -k part1_qubits "
-                         "-w prefix -p num_prefix_gates -r num_root_gates "
+                         "-p num_prefix_gates -r num_root_gates "
                          "-i input_file -o output_file -t num_threads "
                          "-v verbosity -z\n";
 
@@ -43,7 +44,6 @@ struct Options {
   std::string input_file;
   std::string output_file;
   std::vector<unsigned> part1;
-  uint64_t prefix;
   unsigned maxtime = std::numeric_limits<unsigned>::max();
   unsigned num_prefix_gatexs = 0;
   unsigned num_root_gatexs = 0;
@@ -61,7 +61,7 @@ Options GetOptions(int argc, char* argv[]) {
     return std::atoi(word.c_str());
   };
 
-  while ((k = getopt(argc, argv, "c:d:k:w:p:r:i:o:t:v:z")) != -1) {
+  while ((k = getopt(argc, argv, "c:d:k:p:r:i:o:t:v:z")) != -1) {
     switch (k) {
       case 'c':
         opt.circuit_file = optarg;
@@ -71,9 +71,6 @@ Options GetOptions(int argc, char* argv[]) {
         break;
       case 'k':
         qsim::SplitString(optarg, ',', to_int, opt.part1);
-        break;
-      case 'w':
-        opt.prefix = std::atol(optarg);
         break;
       case 'p':
         opt.num_prefix_gatexs = std::atoi(optarg);
@@ -169,6 +166,20 @@ bool WriteAmplitudes(const std::string& file,
 int main(int argc, char* argv[]) {
   using namespace qsim;
 
+  // TODO: Handle MPI errors
+  MPI_Init(&argc, &argv);
+
+  int world_size;
+  MPI_Comm_size(MPI_COMM_WORLD, &world_size);
+
+  int world_rank;
+  MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
+
+  int num_prefix_values = world_size;
+
+  // TODO: Choose num_prefix_values prefixes in a more sophisticated way than just the first ones.
+  int prefix = world_rank;
+
   auto opt = GetOptions(argc, argv);
   if (!ValidateOptions(opt)) {
     return 1;
@@ -218,7 +229,7 @@ int main(int argc, char* argv[]) {
   using Runner = QSimHRunner<IO, HybridSimulator>;
 
   Runner::Parameter param;
-  param.prefix = opt.prefix;
+  param.prefix = prefix;
   param.num_prefix_gatexs = opt.num_prefix_gatexs;
   param.num_root_gatexs = opt.num_root_gatexs;
   param.num_threads = opt.num_threads;
@@ -229,9 +240,26 @@ int main(int argc, char* argv[]) {
   Factory factory(opt.num_threads);
 
   if (Runner::Run(param, factory, circuit, parts, bitstrings, results)) {
-    WriteAmplitudes(opt.output_file, bitstrings, results);
-    IO::messagef("all done.\n");
+    // Sum results across all paths if we have more than one
+    if (world_size > 1) {
+      // Use MPI_IN_PLACE only for rank 0
+      if (world_rank == 0) {
+        MPI_Reduce(MPI_IN_PLACE, results.data(), results.size(),
+                   MPI_C_FLOAT_COMPLEX, MPI_SUM, 0, MPI_COMM_WORLD);
+      } else {
+        MPI_Reduce(results.data(), nullptr, results.size(),
+                   MPI_C_FLOAT_COMPLEX, MPI_SUM, 0, MPI_COMM_WORLD);
+      }
+    }
+
+    // The root process writes the final result
+    if (world_rank == 0) {
+      WriteAmplitudes(opt.output_file, bitstrings, results);
+      IO::messagef("all done.\n");
+    }
   }
+
+  MPI_Finalize();
 
   return 0;
 }
