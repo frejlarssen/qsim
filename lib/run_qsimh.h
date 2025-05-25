@@ -97,6 +97,7 @@ struct QSimHRunner final {
     if (rc && param.verbosity > 0) {
       double t1 = GetTime();
       IO::messagef("prefix %d: time elapsed %g seconds.\n", param.prefix, t1 - t0);
+      report_memory_usage(param.prefix, "For this prefix");
     }
 
     return rc;

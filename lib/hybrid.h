@@ -19,11 +19,24 @@
 #include <array>
 #include <complex>
 #include <vector>
+#include <sys/resource.h>
 
 #include "gate.h"
 #include "gate_appl.h"
 
 namespace qsim {
+
+// Report memory usage for a specific prefix (rank)
+long report_memory_usage(int prefix, const char* phase = nullptr) {
+    struct rusage usage;
+    getrusage(RUSAGE_SELF, &usage);
+    if (phase) {
+        printf("prefix %d [%s]: Memory usage: %ld kB\n", prefix, phase, usage.ru_maxrss);
+    } else {
+        printf("prefix %d: Memory usage: %ld kB\n", prefix, usage.ru_maxrss);
+    }
+    return usage.ru_maxrss;
+}
 
 /**
  * Hybrid Feynman-Schrodinger simulator.
