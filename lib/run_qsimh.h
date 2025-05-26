@@ -156,6 +156,8 @@ struct QSimHRunner final {
     long m_post_0 = 0;
     if (param.verbosity > 0 && group_rank == 0) {
       t_post_0 = GetTime();
+      IO::messagef("prefix: %d, before post-processing: time elapsed %g seconds.\n", 
+                   param.prefix, t_post_0 - t0);
       m_post_0 = report_memory_usage(param.prefix, group_rank, "Rank0: Before post-processing");
     }
 
