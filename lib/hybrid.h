@@ -26,14 +26,16 @@
 
 namespace qsim {
 
-void report_memory_usage(int rank, const char* phase = nullptr) {
+// Report memory usage for a specific prefix and part (rank)
+long report_memory_usage(int prefix, int part, const char* phase = nullptr) {
     struct rusage usage;
     getrusage(RUSAGE_SELF, &usage);
     if (phase) {
-        printf("Rank %d [%s]: Memory usage: %ld KB\n", rank, phase, usage.ru_maxrss);
+        printf("prefix %d, part %d [%s]: Memory usage: %ld kB\n", prefix, part, phase, usage.ru_maxrss);
     } else {
-        printf("Rank %d: Memory usage: %ld KB\n", rank, usage.ru_maxrss);
+        printf("prefix %d, part %d: Memory usage: %ld kB\n", prefix, part, usage.ru_maxrss);
     }
+    return usage.ru_maxrss;
 }
 
 /**

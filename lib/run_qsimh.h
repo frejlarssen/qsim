@@ -86,7 +86,7 @@ struct QSimHRunner final {
       return false;
     }
 
-    if (param.verbosity > 0 && group_rank == 0) {
+    if (param.verbosity > 1) {
       PrintInfo(param, hd);
     }
 
@@ -152,6 +152,13 @@ struct QSimHRunner final {
         param, factory, hd, parts, fgates1, hd.num_qubits1, bitstrings, indices1, results);
     }
 
+    double t_post_0 = 0.0;
+    long m_post_0 = 0;
+    if (param.verbosity > 0 && group_rank == 0) {
+      t_post_0 = GetTime();
+      m_post_0 = report_memory_usage(param.prefix, group_rank, "Rank0: Before post-processing");
+    }
+
     bool rc_all = false;
     MPI_Reduce(&rc_part, &rc_all, 1, MPI_C_BOOL, MPI_LAND, 0, group_comm);
 
@@ -159,11 +166,9 @@ struct QSimHRunner final {
       return false;
     }
 
-    report_memory_usage(group_rank, "Before MPI_Reduce of results");
-
-    if (group_rank == 0) {
-        IO::messagef("Total size to reduce: %lu elements (%lu MB)\n", res_size,
-                      (res_size * sizeof(Amplitude)) / (1024 * 1024));
+    if (param.verbosity > 0 && group_rank == 0) {
+        IO::messagef("Prefix: %d, part: %d. Total size to reduce: %lu elements (%lu MB)\n",
+                      param.prefix, group_rank, res_size, (res_size * sizeof(Amplitude)) / (1024 * 1024));
     }
 
     // Process results in chunks to reduce memory usage
@@ -171,9 +176,9 @@ struct QSimHRunner final {
     uint64_t chunk_size = res_size / 2000;
     uint64_t num_chunks = (res_size + chunk_size - 1) / chunk_size;
 
-    if (group_rank == 0 && param.verbosity > 0) {
-        IO::messagef("Reducing results in %zu chunks of %zu elements each (%.1f MB per chunk)...\n", 
-                     num_chunks, chunk_size, (chunk_size * sizeof(Amplitude)) / (1024.0 * 1024.0));
+    if (param.verbosity > 1 && group_rank == 0) {
+        IO::messagef("Prefix: %d, part: %d. Reducing results in %zu chunks of %zu elements each (%.1f kB per chunk)...\n", 
+                     param.prefix, group_rank, num_chunks, chunk_size, (chunk_size * sizeof(Amplitude)) / 1024.0);
     }
 
     for (uint64_t chunk = 0; chunk < num_chunks; ++chunk) {
@@ -181,7 +186,7 @@ struct QSimHRunner final {
         uint64_t end = std::min(start + chunk_size, res_size);
         uint64_t count = end - start;
 
-        if (group_rank == 0 && param.verbosity > 0) {
+        if (param.verbosity > 1 && group_rank == 0) {
             if (chunk % 500 == 0 || chunk == num_chunks - 1) {
                 IO::messagef("  Processing chunk %zu/%zu\n", chunk + 1, num_chunks);
             }
@@ -196,8 +201,8 @@ struct QSimHRunner final {
         }
     }
 
-    if (group_rank > 0) {
-      report_memory_usage(group_rank, "Total memory usage");
+    if (param.verbosity > 0 && group_rank > 0) {
+      report_memory_usage(param.prefix, group_rank, "Total memory usage");
       return true;
     }
 
@@ -211,11 +216,13 @@ struct QSimHRunner final {
       }
     }
 
-    report_memory_usage(group_rank, "Total memory usage");
+    report_memory_usage(param.prefix, group_rank, "Total memory usage");
 
     if (param.verbosity > 0) {
-      double t1 = GetTime();
-      IO::messagef("time elapsed %g seconds.\n", t1 - t0);
+      double t_post_1 = GetTime();
+      long m_post_1 = report_memory_usage(param.prefix, group_rank, "Rank0: After post-processing");
+      IO::messagef("prefix: %d, post-processing: time elapsed %g seconds.\n", param.prefix, t_post_1 - t_post_0);
+      IO::messagef("prefix: %d, post-processing: extra memory usage %ld kB.\n", param.prefix, m_post_1 - m_post_0);
     }
     return true;
   }

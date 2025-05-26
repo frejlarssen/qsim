@@ -247,7 +247,12 @@ int main(int argc, char* argv[]) {
   param.num_prefix_gatexs = opt.num_prefix_gatexs;
   param.num_root_gatexs = opt.num_root_gatexs;
   param.num_threads = opt.num_threads;
-  param.verbosity = opt.verbosity;
+  if (world_rank == 0) { // Rank 0 has specified verbosity.
+    param.verbosity = opt.verbosity;
+  }
+  else { // Other ranks have max verbosity 1.
+    param.verbosity = std::min<unsigned>(opt.verbosity, 1);
+  }
 
   std::vector<std::complex<Factory::fp_type>> results(bitstrings.size(), 0);
 
