@@ -20,14 +20,13 @@
 #include <mpi.h>
 
 #include "hybrid.h"
-#include "util.h"
 
 namespace qsim {
 
 /**
  * Helper struct for running qsimh.
  */
-template <typename IO, typename HybridSimulator>
+template <typename IO, typename HybridSimulator, typename For>
 struct QSimHRunner final {
   using Gate = typename HybridSimulator::Gate;
   using fp_type = typename HybridSimulator::fp_type;
@@ -36,6 +35,9 @@ struct QSimHRunner final {
   using HybridData = typename HybridSimulator::HybridData;
   using Fuser = typename HybridSimulator::Fuser;
   using Amplitude = typename std::complex<fp_type>;
+
+  template <typename... Args>
+  explicit QSimHRunner(Args &&...args) : for_(args...) {}
 
   /**
    * Evaluates the amplitudes for a given circuit and set of output states.
@@ -50,7 +52,7 @@ struct QSimHRunner final {
    * @return True if the simulation completed successfully; false otherwise.
    */
   template <typename Factory, typename Circuit>
-  static bool Run(const Parameter& param, const Factory& factory,
+  bool Run(const Parameter& param, const Factory& factory,
                   const Circuit& circuit, const std::vector<unsigned>& parts,
                   const std::vector<uint64_t>& bitstrings,
                   std::vector<Amplitude>& results_accumulated,
@@ -66,7 +68,7 @@ struct QSimHRunner final {
     double t0 = 0.0;
 
     if (param.verbosity > 0) {
-      t0 = GetTime();
+      t0 = TimeElapsed(param.prefix, group_rank);
     }
 
     HybridData hd;
@@ -136,6 +138,8 @@ struct QSimHRunner final {
 
     std::vector<Amplitude> results;
 
+    CurrentMemoryUsage(param.prefix, group_rank, "Overhead");
+
     try {
       results.resize(res_size, Amplitude(0.0f, 0.0f));
     } catch (const std::bad_alloc& e) {
@@ -143,22 +147,20 @@ struct QSimHRunner final {
       return false;
     }
 
+    CurrentMemoryUsage(param.prefix, group_rank, "Results allocation");
+
     bool rc_part;
     if (group_rank == 0) {
       rc_part = HybridSimulator(param.num_threads).Run(
-        param, factory, hd, parts, fgates0, hd.num_qubits0, bitstrings, indices0, results);
+        param, factory, hd, parts, fgates0, hd.num_qubits0, bitstrings, indices0, results, 0);
     } else if (group_rank == 1) {
       rc_part = HybridSimulator(param.num_threads).Run(
-        param, factory, hd, parts, fgates1, hd.num_qubits1, bitstrings, indices1, results);
+        param, factory, hd, parts, fgates1, hd.num_qubits1, bitstrings, indices1, results, 1);
     }
 
-    double t_post_0 = 0.0;
-    long m_post_0 = 0;
-    if (param.verbosity > 0 && group_rank == 0) {
-      t_post_0 = GetTime();
-      IO::messagef("prefix: %d, before post-processing: time elapsed %g seconds.\n", 
-                   param.prefix, t_post_0 - t0);
-      m_post_0 = report_memory_usage(param.prefix, group_rank, "Rank0: Before post-processing");
+    double t_apply = 0.0;
+    if (param.verbosity > 0) {
+      t_apply = TimeElapsed(param.prefix, group_rank, "Apply phase", t0);
     }
 
     bool rc_all = false;
@@ -203,28 +205,39 @@ struct QSimHRunner final {
         }
     }
 
-    if (param.verbosity > 0 && group_rank > 0) {
-      report_memory_usage(param.prefix, group_rank, "Total memory usage");
+    double t_red_prod = 0.0;
+    if (param.verbosity > 0) {
+      t_red_prod = TimeElapsed(param.prefix, group_rank, "PROD-Reduce phase", t_apply);
+      PeakMemoryUsage(param.prefix, group_rank, "After PROD-Reduce");
+    }
+
+    if (group_rank > 0) {
       return true;
     }
 
-    uint64_t index;
+    auto f = [](unsigned n, unsigned m, uint64_t i,
+                uint64_t rs_offset,
+                std::vector<Amplitude> &results,
+                std::vector<Amplitude> &results_accumulated) {
+      results_accumulated[i] += results[rs_offset + i];
+    };
+
+    // TODO: Parallelizable on nodes?
+    uint64_t r_offset;
+    uint64_t rs_offset;
     for (uint64_t r = 0; r < hd.rmax; ++r) {
-      for (uint64_t s = 0; s < hd.smax; ++s) {
-        for (uint64_t i = 0; i < bitstrings.size(); i++) {
-          index = r * rblock_size + s * sblock_size + i;
-          results_accumulated[i] += results[index];
-        }
+      r_offset = r * rblock_size;
+      for (uint64_t s = 0; s < hd.smax; ++s)
+      {
+        rs_offset = r_offset + s * sblock_size;
+        for_.Run(bitstrings.size(), f,
+                 rs_offset, results, results_accumulated);
       }
     }
 
-    report_memory_usage(param.prefix, group_rank, "Total memory usage");
-
     if (param.verbosity > 0) {
-      double t_post_1 = GetTime();
-      long m_post_1 = report_memory_usage(param.prefix, group_rank, "Rank0: After post-processing");
-      IO::messagef("prefix: %d, post-processing: time elapsed %g seconds.\n", param.prefix, t_post_1 - t_post_0);
-      IO::messagef("prefix: %d, post-processing: extra memory usage %ld kB.\n", param.prefix, m_post_1 - m_post_0);
+      TimeElapsed(param.prefix, group_rank, "Accumulation", t_red_prod);
+      PeakMemoryUsage(param.prefix, group_rank, "Total");
     }
     return true;
   }
@@ -239,6 +252,8 @@ struct QSimHRunner final {
     IO::messagef("breakup: %up+%ur+%us\n", param.num_prefix_gatexs,
                  param.num_root_gatexs, num_suffix_gates);
   }
+
+  For for_;
 };
 
 }  // namespace qsim

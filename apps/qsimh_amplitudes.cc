@@ -240,7 +240,7 @@ int main(int argc, char* argv[]) {
 
   using HybridSimulator = HybridSimulator<IO, GateQSim<float>, BasicGateFuser,
                                           For>;
-  using Runner = QSimHRunner<IO, HybridSimulator>;
+  using Runner = QSimHRunner<IO, HybridSimulator, For>;
 
   Runner::Parameter param;
   param.prefix = prefix;
@@ -272,7 +272,7 @@ int main(int argc, char* argv[]) {
   }
 
 
-  if (Runner::Run(param, factory, circuit, parts, bitstrings, results, group_comm)) {
+  if (Runner(param.num_threads).Run(param, factory, circuit, parts, bitstrings, results, group_comm)) {
 
     MPI_Comm rank0_comm;
     int rank0 = (group_rank == 0) ? 0 : MPI_UNDEFINED;

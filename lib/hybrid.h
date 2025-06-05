@@ -19,23 +19,64 @@
 #include <array>
 #include <complex>
 #include <vector>
+#include <string>
+#include <iostream>
+#include <fstream>
+#include <sstream>
 #include <sys/resource.h>
 
 #include "gate.h"
 #include "gate_appl.h"
+#include "util.h"
 
 namespace qsim {
 
-// Report memory usage for a specific prefix and part (rank)
-long report_memory_usage(int prefix, int part, const char* phase = nullptr) {
+// Report peak memory usage for a specific prefix and part (rank)
+long PeakMemoryUsage(uint64_t prefix, int part, const char* phase = nullptr) {
     struct rusage usage;
     getrusage(RUSAGE_SELF, &usage);
     if (phase) {
-        printf("prefix %d, part %d [%s]: Memory usage: %ld kB\n", prefix, part, phase, usage.ru_maxrss);
+        printf("prefix: %d, part: %d [%s]: Peak memory usage: %ld kB\n", prefix, part, phase, usage.ru_maxrss);
     } else {
-        printf("prefix %d, part %d: Memory usage: %ld kB\n", prefix, part, usage.ru_maxrss);
+        printf("prefix: %d, part: %d: Peak memory usage: %ld kB\n", prefix, part, usage.ru_maxrss);
     }
     return usage.ru_maxrss;
+}
+
+size_t CurrentMemoryUsage(uint64_t prefix, int part, const char* phase = nullptr) {
+  std::ifstream status_file("/proc/self/status");
+  if (!status_file.is_open()) {
+    std::cerr << "Failed to open /proc/self/status\n";
+    return 0;
+  }
+
+  std::string line;
+  while (std::getline(status_file, line)) {
+    if (line.rfind("VmRSS:", 0) == 0) {
+      std::istringstream iss(line);
+      std::string key;
+      size_t value_kb;
+      std::string unit;
+      iss >> key >> value_kb >> unit;
+      if (phase) {
+        printf("prefix: %d, part: %d [%s]: Current memory usage: %zu kB\n", prefix, part, phase, value_kb);
+      } else {
+        printf("prefix: %d, part: %d: Current memory usage: %zu kB\n", prefix, part, value_kb);
+      }
+      return value_kb;
+    }
+  }
+  return 0;
+}
+
+double TimeElapsed(uint64_t prefix, int part, const char* phase = nullptr, double since = 0) {
+  double t_now = GetTime();
+  if (phase && since != 0) {
+    printf("prefix: %d, part: %d [%s] Time elapsed: %g seconds.\n", prefix, part, phase, t_now - since);
+  } else if (since != 0) {
+    printf("prefix: %d, part: %d Time elapsed: %g seconds.\n", prefix, part, t_now - since);
+  }
+  return t_now;
 }
 
 /**
@@ -311,6 +352,7 @@ struct HybridSimulator final {
    * @param bitstrings List of output states to simulate, as bitstrings.
    * @param results Output vector of amplitudes. After a successful run, this
    *   will be populated with amplitudes for each state in 'bitstrings'.
+   * @param part just needed for logging purposes
    * @return True if the simulation completed successfully; false otherwise.
    */
   template <typename Factory, typename Results>
@@ -319,7 +361,8 @@ struct HybridSimulator final {
            const std::vector<GateFused>& fgates,
            const unsigned num_qubits,
            const std::vector<uint64_t>& bitstrings,
-           std::vector<unsigned> indices, Results& results) const {
+           std::vector<unsigned> indices, Results& results,
+           int part) const {
     using Simulator = typename Factory::Simulator;
     using StateSpace = typename Simulator::StateSpace;
     using State = typename StateSpace::State;
@@ -422,6 +465,8 @@ struct HybridSimulator final {
                  state_space, *rstate, offset, indices, results);
       }
     }
+
+    CurrentMemoryUsage(param.prefix, part, "Apply");
 
     return true;
   }
