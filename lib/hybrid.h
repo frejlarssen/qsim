@@ -37,11 +37,11 @@ long PeakMemoryUsage(uint64_t prefix, int part, const char* phase = nullptr) {
   getrusage(RUSAGE_SELF, &usage);
   if (phase) {
     printf(
-        "prefix: %d, part: %d [%s]: Peak memory usage: %ld kB\n", prefix, part,
+        "prefix: %ld, part: %d [%s]: Peak memory usage: %ld kB\n", prefix, part,
         phase, usage.ru_maxrss);
   } else {
     printf(
-        "prefix: %d, part: %d: Peak memory usage: %ld kB\n", prefix, part,
+        "prefix: %ld, part: %d: Peak memory usage: %ld kB\n", prefix, part,
         usage.ru_maxrss);
   }
   return usage.ru_maxrss;
@@ -65,11 +65,11 @@ size_t CurrentMemoryUsage(
       iss >> key >> value_kb >> unit;
       if (phase) {
         printf(
-            "prefix: %d, part: %d [%s]: Current memory usage: %zu kB\n", prefix,
-            part, phase, value_kb);
+            "prefix: %ld, part: %d [%s]: Current memory usage: %zu kB\n",
+            prefix, part, phase, value_kb);
       } else {
         printf(
-            "prefix: %d, part: %d: Current memory usage: %zu kB\n", prefix,
+            "prefix: %ld, part: %d: Current memory usage: %zu kB\n", prefix,
             part, value_kb);
       }
       return value_kb;
@@ -83,11 +83,11 @@ double TimeElapsed(
   double t_now = GetTime();
   if (phase && since != 0) {
     printf(
-        "prefix: %d, part: %d [%s] Time elapsed: %g seconds.\n", prefix, part,
+        "prefix: %ld, part: %d [%s] Time elapsed: %g seconds.\n", prefix, part,
         phase, t_now - since);
   } else if (since != 0) {
     printf(
-        "prefix: %d, part: %d Time elapsed: %g seconds.\n", prefix, part,
+        "prefix: %ld, part: %d Time elapsed: %g seconds.\n", prefix, part,
         t_now - since);
   }
   return t_now;
