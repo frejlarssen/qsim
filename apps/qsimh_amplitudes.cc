@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <unistd.h>
-
 #include <complex>
 #include <iomanip>
 #include <limits>
 #include <sstream>
 #include <string>
+#include <unistd.h>
 #include <vector>
 
 #include "../lib/bitstring.h"
@@ -32,11 +31,12 @@
 #include "../lib/util.h"
 #include "../lib/util_cpu.h"
 
-constexpr char usage[] = "usage:\n  ./qsimh_amplitudes -c circuit_file "
-                         "-d maxtime -k part1_qubits "
-                         "-p num_prefix_gates -r num_root_gates "
-                         "-i input_file -o output_file -t num_threads "
-                         "-v verbosity -z\n";
+constexpr char usage[] =
+    "usage:\n  ./qsimh_amplitudes -c circuit_file "
+    "-d maxtime -k part1_qubits "
+    "-p num_prefix_gates -r num_root_gates "
+    "-i input_file -o output_file -t num_threads "
+    "-v verbosity -z\n";
 
 struct Options {
   std::string circuit_file;
@@ -146,17 +146,17 @@ std::vector<unsigned> GetParts(
 }
 
 template <typename Bitstring, typename Ctype>
-bool WriteAmplitudes(const std::string& file,
-                    const std::vector<Bitstring>& bitstrings,
-                    const std::vector<Ctype>& results) {
+bool WriteAmplitudes(
+    const std::string& file, const std::vector<Bitstring>& bitstrings,
+    const std::vector<Ctype>& results) {
   std::stringstream ss;
 
   const unsigned width = 2 * sizeof(float) + 1;
   ss << std::setprecision(width);
   for (size_t i = 0; i < bitstrings.size(); ++i) {
     const auto& a = results[i];
-    ss << std::setw(width + 8) << std::real(a)
-       << std::setw(width + 8) << std::imag(a) << "\n";
+    ss << std::setw(width + 8) << std::real(a) << std::setw(width + 8)
+       << std::imag(a) << "\n";
   }
 
   return qsim::IOFile::WriteToFile(file, ss.str());
@@ -186,7 +186,8 @@ int main(int argc, char* argv[]) {
   int num_prefix_values = world_size / 2;
 
   // Split into groups of 2 processes each (one for each part)
-  // TODO: Choose num_prefix_values prefixes in a more sophisticated way than just the first ones.
+  // TODO: Choose num_prefix_values prefixes in a more sophisticated way than
+  // just the first ones.
   int prefix = world_rank / 2;
   MPI_Comm group_comm;
   MPI_Comm_split(MPI_COMM_WORLD, prefix, world_rank, &group_comm);
@@ -200,8 +201,8 @@ int main(int argc, char* argv[]) {
   }
 
   Circuit<GateQSim<float>> circuit;
-  if (!CircuitQsimParser<IOFile>::FromFile(opt.maxtime, opt.circuit_file,
-                                           circuit)) {
+  if (!CircuitQsimParser<IOFile>::FromFile(
+          opt.maxtime, opt.circuit_file, circuit)) {
     return 1;
   }
 
@@ -227,19 +228,15 @@ int main(int argc, char* argv[]) {
     using StateSpace = Simulator::StateSpace;
     using fp_type = Simulator::fp_type;
 
-    StateSpace CreateStateSpace() const {
-      return StateSpace(num_threads);
-    }
+    StateSpace CreateStateSpace() const { return StateSpace(num_threads); }
 
-    Simulator CreateSimulator() const {
-      return Simulator(num_threads);
-    }
+    Simulator CreateSimulator() const { return Simulator(num_threads); }
 
     unsigned num_threads;
   };
 
-  using HybridSimulator = HybridSimulator<IO, GateQSim<float>, BasicGateFuser,
-                                          For>;
+  using HybridSimulator =
+      HybridSimulator<IO, GateQSim<float>, BasicGateFuser, For>;
   using Runner = QSimHRunner<IO, HybridSimulator, For>;
 
   Runner::Parameter param;
@@ -247,10 +244,9 @@ int main(int argc, char* argv[]) {
   param.num_prefix_gatexs = opt.num_prefix_gatexs;
   param.num_root_gatexs = opt.num_root_gatexs;
   param.num_threads = opt.num_threads;
-  if (world_rank == 0) { // Rank 0 has specified verbosity.
+  if (world_rank == 0) {  // Rank 0 has specified verbosity.
     param.verbosity = opt.verbosity;
-  }
-  else { // Other ranks have max verbosity 1.
+  } else {  // Other ranks have max verbosity 1.
     param.verbosity = std::min<unsigned>(opt.verbosity, 1);
   }
 
@@ -260,30 +256,43 @@ int main(int argc, char* argv[]) {
 
   std::string output_file;
   if (opt.output_file == "auto") {
-    std::size_t buf_size = std::snprintf(nullptr, 0, "ampl_q%d_d%d_p%d_r%d_num_prefix_values=%d", circuit.num_qubits, opt.maxtime, opt.num_prefix_gatexs, opt.num_root_gatexs, num_prefix_values) + 1;
-    if( buf_size <= 0 ){ printf("Error in output file formatting\n"); }
-    auto size = static_cast<size_t>( buf_size );
-    std::unique_ptr<char[]> buf( new char[ size ] );
-    std::snprintf( buf.get(), size, "ampl_q%d_d%d_p%d_r%d_num_prefix_values=%d", circuit.num_qubits, opt.maxtime, opt.num_prefix_gatexs, opt.num_root_gatexs, num_prefix_values);
-    output_file = std::string( buf.get(), buf.get() + size - 1 );
-  }
-  else {
+    std::size_t buf_size =
+        std::snprintf(
+            nullptr, 0, "ampl_q%d_d%d_p%d_r%d_num_prefix_values=%d",
+            circuit.num_qubits, opt.maxtime, opt.num_prefix_gatexs,
+            opt.num_root_gatexs, num_prefix_values) +
+        1;
+    if (buf_size <= 0) {
+      printf("Error in output file formatting\n");
+    }
+    auto size = static_cast<size_t>(buf_size);
+    std::unique_ptr<char[]> buf(new char[size]);
+    std::snprintf(
+        buf.get(), size, "ampl_q%d_d%d_p%d_r%d_num_prefix_values=%d",
+        circuit.num_qubits, opt.maxtime, opt.num_prefix_gatexs,
+        opt.num_root_gatexs, num_prefix_values);
+    output_file = std::string(buf.get(), buf.get() + size - 1);
+  } else {
     output_file = opt.output_file;
   }
 
-
-  if (Runner(param.num_threads).Run(param, factory, circuit, parts, bitstrings, results, group_comm)) {
-
+  if (Runner(param.num_threads)
+          .Run(
+              param, factory, circuit, parts, bitstrings, results,
+              group_comm)) {
     MPI_Comm rank0_comm;
     int rank0 = (group_rank == 0) ? 0 : MPI_UNDEFINED;
     int err = MPI_Comm_split(MPI_COMM_WORLD, rank0, world_rank, &rank0_comm);
     if (err != MPI_SUCCESS) {
-      IO::errorf("Group rank: %d. World rank: %d. MPI_Comm_split failed with error %d\n",
-                group_rank, world_rank, err);
+      IO::errorf(
+          "Group rank: %d. World rank: %d. MPI_Comm_split failed with error "
+          "%d\n",
+          group_rank, world_rank, err);
       MPI_Abort(MPI_COMM_WORLD, 1);
     }
 
-    // Only group rank 0 processes (one for each prefix) participate in the final reduction
+    // Only group rank 0 processes (one for each prefix) participate in the
+    // final reduction
     if (group_rank == 0) {
       int rank0_group_rank;
       MPI_Comm_rank(rank0_comm, &rank0_group_rank);
@@ -295,11 +304,13 @@ int main(int argc, char* argv[]) {
       if (rank0_size > 1) {
         // Use MPI_IN_PLACE only for rank 0 within the group of rank 0s
         if (rank0_group_rank == 0) {
-          MPI_Reduce(MPI_IN_PLACE, results.data(), results.size(),
-                     MPI_C_FLOAT_COMPLEX, MPI_SUM, 0, rank0_comm);
+          MPI_Reduce(
+              MPI_IN_PLACE, results.data(), results.size(), MPI_C_FLOAT_COMPLEX,
+              MPI_SUM, 0, rank0_comm);
         } else {
-          MPI_Reduce(results.data(), nullptr, results.size(),
-                     MPI_C_FLOAT_COMPLEX, MPI_SUM, 0, rank0_comm);
+          MPI_Reduce(
+              results.data(), nullptr, results.size(), MPI_C_FLOAT_COMPLEX,
+              MPI_SUM, 0, rank0_comm);
         }
       }
 

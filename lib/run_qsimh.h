@@ -15,9 +15,9 @@
 #ifndef RUN_QSIMH_H_
 #define RUN_QSIMH_H_
 
+#include <mpi.h>
 #include <string>
 #include <vector>
-#include <mpi.h>
 
 #include "hybrid.h"
 
@@ -37,7 +37,7 @@ struct QSimHRunner final {
   using Amplitude = typename std::complex<fp_type>;
 
   template <typename... Args>
-  explicit QSimHRunner(Args &&...args) : for_(args...) {}
+  explicit QSimHRunner(Args&&... args) : for_(args...) {}
 
   /**
    * Evaluates the amplitudes for a given circuit and set of output states.
@@ -52,11 +52,11 @@ struct QSimHRunner final {
    * @return True if the simulation completed successfully; false otherwise.
    */
   template <typename Factory, typename Circuit>
-  bool Run(const Parameter& param, const Factory& factory,
-                  const Circuit& circuit, const std::vector<unsigned>& parts,
-                  const std::vector<uint64_t>& bitstrings,
-                  std::vector<Amplitude>& results_accumulated,
-                  MPI_Comm group_comm) {
+  bool Run(
+      const Parameter& param, const Factory& factory, const Circuit& circuit,
+      const std::vector<unsigned>& parts,
+      const std::vector<uint64_t>& bitstrings,
+      std::vector<Amplitude>& results_accumulated, MPI_Comm group_comm) {
     int group_rank;
     MPI_Comm_rank(group_comm, &group_rank);
 
@@ -75,16 +75,16 @@ struct QSimHRunner final {
     bool rc = HybridSimulator::SplitLattice(parts, circuit.gates, hd);
 
     if (!rc) {
-      //TODO: Tell the other rank that there was an error
+      // TODO: Tell the other rank that there was an error
       return false;
     }
 
     if (hd.num_gatexs < param.num_prefix_gatexs + param.num_root_gatexs) {
-      IO::errorf("error: num_prefix_gates (%u) plus num_root gates (%u) is "
-                 "greater than num_gates_on_the_cut (%u).\n",
-                 param.num_prefix_gatexs, param.num_root_gatexs,
-                 hd.num_gatexs);
-      //TODO: Tell the other rank that there was an error
+      IO::errorf(
+          "error: num_prefix_gates (%u) plus num_root gates (%u) is "
+          "greater than num_gates_on_the_cut (%u).\n",
+          param.num_prefix_gatexs, param.num_root_gatexs, hd.num_gatexs);
+      // TODO: Tell the other rank that there was an error
       return false;
     }
 
@@ -98,13 +98,13 @@ struct QSimHRunner final {
     if (group_rank == 0) {
       fgates0 = Fuser::FuseGates(param, hd.num_qubits0, hd.gates0);
       if (fgates0.size() == 0 && hd.gates0.size() > 0) {
-        //TODO: Tell the other rank that there was an error
+        // TODO: Tell the other rank that there was an error
         return false;
       }
     } else if (group_rank == 1) {
       fgates1 = Fuser::FuseGates(param, hd.num_qubits1, hd.gates1);
       if (fgates1.size() == 0 && hd.gates1.size() > 0) {
-        //TODO: Tell the other rank that there was an error
+        // TODO: Tell the other rank that there was an error
         return false;
       }
     }
@@ -134,7 +134,7 @@ struct QSimHRunner final {
 
     uint64_t sblock_size = bitstrings.size();
     uint64_t rblock_size = hd.smax * sblock_size;
-    uint64_t res_size    = hd.rmax * rblock_size;
+    uint64_t res_size = hd.rmax * rblock_size;
 
     std::vector<Amplitude> results;
 
@@ -143,7 +143,9 @@ struct QSimHRunner final {
     try {
       results.resize(res_size, Amplitude(0.0f, 0.0f));
     } catch (const std::bad_alloc& e) {
-      IO::errorf("rank %d: Too many gates on root and suffix cut to resize vector\n", group_rank);
+      IO::errorf(
+          "rank %d: Too many gates on root and suffix cut to resize vector\n",
+          group_rank);
       return false;
     }
 
@@ -151,11 +153,15 @@ struct QSimHRunner final {
 
     bool rc_part;
     if (group_rank == 0) {
-      rc_part = HybridSimulator(param.num_threads).Run(
-        param, factory, hd, parts, fgates0, hd.num_qubits0, bitstrings, indices0, results, 0);
+      rc_part = HybridSimulator(param.num_threads)
+                    .Run(
+                        param, factory, hd, parts, fgates0, hd.num_qubits0,
+                        bitstrings, indices0, results, 0);
     } else if (group_rank == 1) {
-      rc_part = HybridSimulator(param.num_threads).Run(
-        param, factory, hd, parts, fgates1, hd.num_qubits1, bitstrings, indices1, results, 1);
+      rc_part = HybridSimulator(param.num_threads)
+                    .Run(
+                        param, factory, hd, parts, fgates1, hd.num_qubits1,
+                        bitstrings, indices1, results, 1);
     }
 
     double t_apply = 0.0;
@@ -171,8 +177,10 @@ struct QSimHRunner final {
     }
 
     if (param.verbosity > 0 && group_rank == 0) {
-        IO::messagef("Prefix: %d, part: %d. Total size to reduce: %lu elements (%lu MB)\n",
-                      param.prefix, group_rank, res_size, (res_size * sizeof(Amplitude)) / (1024 * 1024));
+      IO::messagef(
+          "Prefix: %d, part: %d. Total size to reduce: %lu elements (%lu MB)\n",
+          param.prefix, group_rank, res_size,
+          (res_size * sizeof(Amplitude)) / (1024 * 1024));
     }
 
     // Process results in chunks to reduce memory usage
@@ -181,33 +189,39 @@ struct QSimHRunner final {
     uint64_t num_chunks = (res_size + chunk_size - 1) / chunk_size;
 
     if (param.verbosity > 1 && group_rank == 0) {
-        IO::messagef("Prefix: %d, part: %d. Reducing results in %zu chunks of %zu elements each (%.1f kB per chunk)...\n", 
-                     param.prefix, group_rank, num_chunks, chunk_size, (chunk_size * sizeof(Amplitude)) / 1024.0);
+      IO::messagef(
+          "Prefix: %d, part: %d. Reducing results in %zu chunks of %zu "
+          "elements each (%.1f kB per chunk)...\n",
+          param.prefix, group_rank, num_chunks, chunk_size,
+          (chunk_size * sizeof(Amplitude)) / 1024.0);
     }
 
     for (uint64_t chunk = 0; chunk < num_chunks; ++chunk) {
-        uint64_t start = chunk * chunk_size;
-        uint64_t end = std::min(start + chunk_size, res_size);
-        uint64_t count = end - start;
+      uint64_t start = chunk * chunk_size;
+      uint64_t end = std::min(start + chunk_size, res_size);
+      uint64_t count = end - start;
 
-        if (param.verbosity > 1 && group_rank == 0) {
-            if (chunk % 500 == 0 || chunk == num_chunks - 1) {
-                IO::messagef("  Processing chunk %zu/%zu\n", chunk + 1, num_chunks);
-            }
+      if (param.verbosity > 1 && group_rank == 0) {
+        if (chunk % 500 == 0 || chunk == num_chunks - 1) {
+          IO::messagef("  Processing chunk %zu/%zu\n", chunk + 1, num_chunks);
         }
+      }
 
-        if (group_rank == 0) {
-            MPI_Reduce(MPI_IN_PLACE, results.data() + start, count,
-                       MPI_C_FLOAT_COMPLEX, MPI_PROD, 0, group_comm);
-        } else {
-            MPI_Reduce(results.data() + start, nullptr, count,
-                       MPI_C_FLOAT_COMPLEX, MPI_PROD, 0, group_comm);
-        }
+      if (group_rank == 0) {
+        MPI_Reduce(
+            MPI_IN_PLACE, results.data() + start, count, MPI_C_FLOAT_COMPLEX,
+            MPI_PROD, 0, group_comm);
+      } else {
+        MPI_Reduce(
+            results.data() + start, nullptr, count, MPI_C_FLOAT_COMPLEX,
+            MPI_PROD, 0, group_comm);
+      }
     }
 
     double t_red_prod = 0.0;
     if (param.verbosity > 0) {
-      t_red_prod = TimeElapsed(param.prefix, group_rank, "PROD-Reduce phase", t_apply);
+      t_red_prod =
+          TimeElapsed(param.prefix, group_rank, "PROD-Reduce phase", t_apply);
       PeakMemoryUsage(param.prefix, group_rank, "After PROD-Reduce");
     }
 
@@ -215,10 +229,9 @@ struct QSimHRunner final {
       return true;
     }
 
-    auto f = [](unsigned n, unsigned m, uint64_t i,
-                uint64_t rs_offset,
-                std::vector<Amplitude> &results,
-                std::vector<Amplitude> &results_accumulated) {
+    auto f = [](unsigned n, unsigned m, uint64_t i, uint64_t rs_offset,
+                std::vector<Amplitude>& results,
+                std::vector<Amplitude>& results_accumulated) {
       results_accumulated[i] += results[rs_offset + i];
     };
 
@@ -227,11 +240,9 @@ struct QSimHRunner final {
     uint64_t rs_offset;
     for (uint64_t r = 0; r < hd.rmax; ++r) {
       r_offset = r * rblock_size;
-      for (uint64_t s = 0; s < hd.smax; ++s)
-      {
+      for (uint64_t s = 0; s < hd.smax; ++s) {
         rs_offset = r_offset + s * sblock_size;
-        for_.Run(bitstrings.size(), f,
-                 rs_offset, results, results_accumulated);
+        for_.Run(bitstrings.size(), f, rs_offset, results, results_accumulated);
       }
     }
 
@@ -249,8 +260,9 @@ struct QSimHRunner final {
 
     IO::messagef("part 0: %u, part 1: %u\n", hd.num_qubits0, hd.num_qubits1);
     IO::messagef("%u gates on the cut\n", hd.num_gatexs);
-    IO::messagef("breakup: %up+%ur+%us\n", param.num_prefix_gatexs,
-                 param.num_root_gatexs, num_suffix_gates);
+    IO::messagef(
+        "breakup: %up+%ur+%us\n", param.num_prefix_gatexs,
+        param.num_root_gatexs, num_suffix_gates);
   }
 
   For for_;
