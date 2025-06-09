@@ -47,6 +47,7 @@ struct Options {
   unsigned maxtime = std::numeric_limits<unsigned>::max();
   unsigned num_prefix_gatexs = 0;
   unsigned num_root_gatexs = 0;
+  bool auto_num_root_gatexs = true;
   unsigned num_threads = 1;
   unsigned verbosity = 0;
   bool denormals_are_zeros = false;
@@ -79,7 +80,10 @@ Options GetOptions(int argc, char* argv[]) {
         opt.num_prefix_gatexs = std::atoi(optarg);
         break;
       case 'r':
-        opt.num_root_gatexs = std::atoi(optarg);
+        if (std::string(optarg) != "auto") {
+          opt.auto_num_root_gatexs = false;
+          opt.num_root_gatexs = std::atoi(optarg);
+        }
         break;
       case 'i':
         opt.input_file = optarg;
@@ -220,6 +224,7 @@ int main(int argc, char* argv[]) {
   Runner::Parameter param;
   param.prefix = opt.prefix;
   param.num_prefix_gatexs = opt.num_prefix_gatexs;
+  param.auto_num_root_gatexs = opt.auto_num_root_gatexs;
   param.num_root_gatexs = opt.num_root_gatexs;
   param.num_threads = opt.num_threads;
   param.verbosity = opt.verbosity;
