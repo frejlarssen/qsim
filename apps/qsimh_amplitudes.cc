@@ -72,7 +72,7 @@ Options GetOptions(int argc, char* argv[]) {
         opt.maxtime = std::atoi(optarg);
         break;
       case 'k':
-        if (std::string(optarg) != "auto") {
+        if (std::string(optarg) != "middle") {
           opt.auto_part1 = false;
           qsim::SplitString(optarg, ',', to_int, opt.part1);
         }
