@@ -43,6 +43,7 @@ struct Options {
   std::string input_file;
   std::string output_file;
   std::vector<unsigned> part1;
+  bool auto_part1 = true;
   uint64_t prefix;
   unsigned maxtime = std::numeric_limits<unsigned>::max();
   unsigned num_prefix_gatexs = 0;
@@ -71,7 +72,10 @@ Options GetOptions(int argc, char* argv[]) {
         opt.maxtime = std::atoi(optarg);
         break;
       case 'k':
-        qsim::SplitString(optarg, ',', to_int, opt.part1);
+        if (std::string(optarg) != "auto") {
+          opt.auto_part1 = false;
+          qsim::SplitString(optarg, ',', to_int, opt.part1);
+        }
         break;
       case 'w':
         opt.prefix = std::atol(optarg);
@@ -182,6 +186,12 @@ int main(int argc, char* argv[]) {
   if (!CircuitQsimParser<IOFile>::FromFile(opt.maxtime, opt.circuit_file,
                                            circuit)) {
     return 1;
+  }
+
+  if (opt.auto_part1) {
+    for (unsigned i = 0; i < circuit.num_qubits/2; i++) {
+      opt.part1.push_back(i);
+    }
   }
 
   if (!ValidatePart1(circuit.num_qubits, opt.part1)) {
