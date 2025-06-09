@@ -88,6 +88,48 @@ struct QSimHRunner final {
       return false;
     }
 
+    unsigned num_p_gates = param.num_prefix_gatexs;
+
+    if (param.auto_num_root_gatexs) {
+      unsigned max_r = hd.num_gatexs - num_p_gates;
+      unsigned best_r = 0;
+      unsigned best_time = std::numeric_limits<unsigned>::max();
+
+      for (unsigned r_guess = 0; r_guess <= max_r; r_guess++) {
+
+        param.num_root_gatexs = r_guess;
+        unsigned num_pr_gates = num_p_gates + r_guess;
+
+        auto bits = HybridSimulator::CountSchmidtBits(param, hd.gatexs);
+
+        uint64_t rmax = uint64_t{1} << bits.num_r_bits;
+        uint64_t smax = uint64_t{1} << bits.num_s_bits;
+
+        auto loc0 = HybridSimulator::CheckpointLocations(param, fgates0);
+        auto loc1 = HybridSimulator::CheckpointLocations(param, fgates1);
+
+        unsigned mr_0 = loc0[1] - loc0[0];
+        unsigned mr_1 = loc1[1] - loc1[0];
+        unsigned ms_0 = fgates0.size() - loc0[1];
+        unsigned ms_1 = fgates1.size() - loc1[1];
+
+        // Compute the time for this guess.
+        uint64_t time =
+            rmax * ((mr_0 + mr_1) + (smax * (ms_0 + ms_1)));
+
+        if (time < best_time) {
+          best_time = time;
+          best_r = r_guess;
+        }
+      }
+
+      param.num_root_gatexs = best_r;
+    }
+
+    if (param.verbosity > 0) {
+      PrintInfo(param, hd);
+    }
+
     rc = HybridSimulator(param.num_threads).Run(
         param, factory, hd, parts, fgates0, fgates1, bitstrings, results);
 
@@ -98,6 +140,17 @@ struct QSimHRunner final {
     }
 
     return rc;
+  }
+
+ private:
+  static void PrintInfo(const Parameter& param, const HybridData& hd) {
+    unsigned num_suffix_gates =
+        hd.num_gatexs - param.num_prefix_gatexs - param.num_root_gatexs;
+
+    IO::messagef("part 0: %u, part 1: %u\n", hd.num_qubits0, hd.num_qubits1);
+    IO::messagef("%u gates on the cut\n", hd.num_gatexs);
+    IO::messagef("breakup: %up+%ur+%us\n", param.num_prefix_gatexs,
+                 param.num_root_gatexs, num_suffix_gates);
   }
 };
 
