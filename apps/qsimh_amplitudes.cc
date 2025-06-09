@@ -44,9 +44,11 @@ struct Options {
   std::string input_file;
   std::string output_file;
   std::vector<unsigned> part1;
+  bool auto_part1 = true;
   unsigned maxtime = std::numeric_limits<unsigned>::max();
   unsigned num_prefix_gatexs = 0;
   unsigned num_root_gatexs = 0;
+  bool auto_num_root_gatexs = true;
   unsigned num_threads = 1;
   unsigned verbosity = 0;
   bool denormals_are_zeros = false;
@@ -70,13 +72,19 @@ Options GetOptions(int argc, char* argv[]) {
         opt.maxtime = std::atoi(optarg);
         break;
       case 'k':
-        qsim::SplitString(optarg, ',', to_int, opt.part1);
+        if (std::string(optarg) != "auto") {
+          opt.auto_part1 = false;
+          qsim::SplitString(optarg, ',', to_int, opt.part1);
+        }
         break;
       case 'p':
         opt.num_prefix_gatexs = std::atoi(optarg);
         break;
       case 'r':
-        opt.num_root_gatexs = std::atoi(optarg);
+        if (std::string(optarg) != "auto") {
+          opt.auto_num_root_gatexs = false;
+          opt.num_root_gatexs = std::atoi(optarg);
+        }
         break;
       case 'i':
         opt.input_file = optarg;
@@ -191,6 +199,12 @@ int main(int argc, char* argv[]) {
     return 1;
   }
 
+  if (opt.auto_part1) {
+    for (unsigned i = 0; i < circuit.num_qubits/2; i++) {
+      opt.part1.push_back(i);
+    }
+  }
+
   if (!ValidatePart1(circuit.num_qubits, opt.part1)) {
     return 1;
   }
@@ -231,6 +245,7 @@ int main(int argc, char* argv[]) {
   Runner::Parameter param;
   param.prefix = prefix;
   param.num_prefix_gatexs = opt.num_prefix_gatexs;
+  param.auto_num_root_gatexs = opt.auto_num_root_gatexs;
   param.num_root_gatexs = opt.num_root_gatexs;
   param.num_threads = opt.num_threads;
   if (world_rank == 0) { // Rank 0 has specified verbosity.

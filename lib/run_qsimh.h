@@ -48,7 +48,7 @@ struct QSimHRunner final {
    * @return True if the simulation completed successfully; false otherwise.
    */
   template <typename Factory, typename Circuit>
-  static bool Run(const Parameter& param, const Factory& factory,
+  static bool Run(Parameter& param, const Factory& factory,
                   const Circuit& circuit, const std::vector<unsigned>& parts,
                   const std::vector<uint64_t>& bitstrings,
                   std::vector<std::complex<fp_type>>& results) {
@@ -77,9 +77,6 @@ struct QSimHRunner final {
                  hd.num_gatexs);
       return false;
     }
-    if (param.verbosity > 1) {
-      PrintInfo(param, hd);
-    }
 
     auto fgates0 = Fuser::FuseGates(param, hd.num_qubits0, hd.gates0);
     if (fgates0.size() == 0 && hd.gates0.size() > 0) {
@@ -101,17 +98,6 @@ struct QSimHRunner final {
     }
 
     return rc;
-  }
-
- private:
-  static void PrintInfo(const Parameter& param, const HybridData& hd) {
-    unsigned num_suffix_gates =
-        hd.num_gatexs - param.num_prefix_gatexs - param.num_root_gatexs;
-
-    IO::messagef("part 0: %u, part 1: %u\n", hd.num_qubits0, hd.num_qubits1);
-    IO::messagef("%u gates on the cut\n", hd.num_gatexs);
-    IO::messagef("breakup: %up+%ur+%us\n", param.num_prefix_gatexs,
-                 param.num_root_gatexs, num_suffix_gates);
   }
 };
 
