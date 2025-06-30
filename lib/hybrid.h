@@ -323,11 +323,33 @@ struct HybridSimulator final {
 
     auto bits = CountSchmidtBits(param, hd.gatexs);
 
+    uint64_t pmax = uint64_t{1} << bits.num_p_bits;
     uint64_t rmax = uint64_t{1} << bits.num_r_bits;
     uint64_t smax = uint64_t{1} << bits.num_s_bits;
 
     auto loc0 = CheckpointLocations(param, fgates0);
     auto loc1 = CheckpointLocations(param, fgates1);
+
+    if (param.verbosity > 0) {
+      IO::messagef("No histories:\n\tprefix (_01) %lu, root (_O2) %lu, "
+                   "suffix (_O3) = %lu.\n", pmax, rmax, smax);
+
+      IO::messagef("No gates partition 1 (G_P1):\n\t"
+                   "prefix (_O1) %u, root (_O2) %u, suffix (_O3) %u.\n",
+                   loc0[0], loc0[1] - loc0[0], fgates0.size() - loc0[1]);
+
+      IO::messagef("No gates partition 2 (G_P2):\n\t"
+                 "prefix (_O1) %u, root (_O2) %u, suffix (_O3) %u.\n",
+                 loc1[0], loc1[1] - loc1[0], fgates1.size() - loc1[1]);
+
+      IO::messagef("CSV output format:\n\t"
+                   "%lu, %lu, %lu, %u, %u, %u, %u, %u, %u\n",
+                   pmax, rmax, smax,
+                   loc0[0], loc0[1] - loc0[0],
+                   fgates0.size() - loc0[1],
+                   loc1[0], loc1[1] - loc1[0],
+                   fgates1.size() - loc1[1]);
+    }
 
     struct Index {
       unsigned i0;
