@@ -98,7 +98,6 @@ struct QSimHRunner final {
       for (unsigned r_guess = 0; r_guess <= max_r; r_guess++) {
 
         param.num_root_gatexs = r_guess;
-        unsigned num_pr_gates = num_p_gates + r_guess;
 
         auto bits = HybridSimulator::CountSchmidtBits(param, hd.gatexs);
 
