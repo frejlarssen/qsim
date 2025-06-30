@@ -1,3 +1,17 @@
+# Copyright 2018 The Cirq Developers
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import os
 import re
 import sys
@@ -32,8 +46,8 @@ class CMakeBuild(build_ext):
             cmake_version = parse(
                 re.search(r"version\s*([\d.]+)", out.decode()).group(1)
             )
-            if cmake_version < parse("3.1.0"):
-                raise RuntimeError("CMake >= 3.1.0 is required on Windows")
+            if cmake_version < parse("3.31.0"):
+                raise RuntimeError("CMake >= 3.31.0 is required on Windows")
 
         for ext in self.extensions:
             self.build_extension(ext)
@@ -42,11 +56,15 @@ class CMakeBuild(build_ext):
         extdir = os.path.abspath(os.path.dirname(self.get_ext_fullpath(ext.name)))
         python_include_dir = sysconfig.get_path("include")
         cmake_args = [
-            "-DCMAKE_CUDA_COMPILER=nvcc",
             "-DCMAKE_LIBRARY_OUTPUT_DIRECTORY=" + extdir,
             "-DPYTHON_EXECUTABLE=" + sys.executable,
             "-DPYTHON_INCLUDE_DIR=" + python_include_dir,
         ]
+
+        if shutil.which("nvcc") is not None:
+            cmake_args += [
+                "-DCMAKE_CUDA_COMPILER=nvcc",
+            ]
 
         additional_cmake_args = os.environ.get("CMAKE_ARGS", "")
         if additional_cmake_args:
@@ -120,15 +138,23 @@ setup(
     name="qsimcirq",
     version=__version__,
     url="https://github.com/quantumlib/qsim",
-    author="Vamsi Krishna Devabathini",
-    author_email="devabathini92@gmail.com",
-    python_requires=">=3.7.0",
+    author="The qsim/qsimh Developers",
+    author_email="qsim-qsimh-dev@googlegroups.com",
+    maintainer="Google Quantum AI open-source maintainers",
+    maintainer_email="quantum-oss-maintainers@google.com",
+    python_requires=">=3.10.0",
     install_requires=requirements,
-    setup_requires=["packaging"],
+    # "pip install" from sources needs to build Pybind, which needs CMake too.
+    setup_requires=[
+        "packaging",
+        "setuptools>=75.2.0",
+        "pybind11[global]",
+        "cmake~=3.31.0",
+    ],
     extras_require={
         "dev": dev_requirements,
     },
-    license="Apache 2",
+    license="Apache-2.0",
     description=description,
     long_description=long_description,
     long_description_content_type="text/markdown",
@@ -146,4 +172,45 @@ setup(
     zip_safe=False,
     packages=["qsimcirq"],
     package_data={"qsimcirq": ["py.typed"]},
+    classifiers=[
+        "Development Status :: 5 - Production/Stable",
+        "Environment :: GPU :: NVIDIA CUDA",
+        "Intended Audience :: Developers",
+        "Intended Audience :: Science/Research",
+        "Operating System :: MacOS :: MacOS X",
+        "Operating System :: Microsoft :: Windows",
+        "Operating System :: POSIX :: Linux",
+        "Programming Language :: C++",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+        "Programming Language :: Python :: 3.13",
+        "Topic :: Scientific/Engineering :: Quantum Computing",
+        "Topic :: Software Development :: Libraries :: Python Modules",
+        "Typing :: Typed",
+    ],
+    keywords=[
+        "algorithms",
+        "api",
+        "application programming interface",
+        "cirq",
+        "google quantum",
+        "google",
+        "nisq",
+        "python",
+        "quantum algorithm development",
+        "quantum circuit simulator",
+        "quantum computer simulator",
+        "quantum computing",
+        "quantum computing research",
+        "quantum programming",
+        "quantum simulation",
+        "quantum",
+        "schrödinger-feynman simulation",
+        "sdk",
+        "simulation",
+        "state vector simulator",
+        "software development kit",
+    ],
 )

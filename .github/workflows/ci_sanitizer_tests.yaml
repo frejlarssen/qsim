@@ -12,12 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-name: 'Nightly Cirq compatibility test'
-run-name: Regularly test code against latest Cirq dev release
+name: 'CI: sanitizer tests'
+run-name: Test with address and memory sanitizers
 
 on:
-  schedule:
-    - cron: "10 7 * * *"
+  push:
+    branches:
+      - master
+      - main
+
+  pull_request:
+    types: [opened, synchronize]
+
+  merge_group:
+    types:
+      - checks_requested
 
   workflow_dispatch:
     inputs:
@@ -34,10 +43,25 @@ concurrency:
   group: ${{github.workflow}}-${{github.event.pull_request.number||github.ref}}
 
 jobs:
-  test-compatibility:
-    name: Test Cirq compatibility
+  find-changes:
+    name: Find changed files
+    uses: ./.github/workflows/reusable_find_changes.yaml
+    secrets: inherit
+
+  sanitizer-tests:
+    # For efficiency, skip this workflow if there were no code file changes.
+    if: needs.find-changes.outputs.code || github.event_name == 'workflow_dispatch'
+    name: Test with sanitizers
+    needs: find-changes
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      matrix:
+        # Memory and address sanitizers.
+        sanitizer_opt: [msan, asan]
+    env:
+      # Must use explicit test for true so it works when inputs.debug is null.
+      use-verbose: ${{github.event.inputs.debug == true}}
     steps:
       - name: Check out a copy of the git repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
@@ -45,8 +69,16 @@ jobs:
           fetch-depth: 1
           submodules: recursive
 
+      - uses: bazel-contrib/setup-bazel@8d2cb86a3680a820c3e219597279ce3f80d17a47 # 0.15.0
+        with:
+          disk-cache: ${{github.workflow}}
+          bazelisk-cache: true
+          external-cache: true
+          repository-cache: true
+
       - name: Set up Python with caching of pip dependencies
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        id: setup
         with:
           python-version: '3.12'
           cache: pip
@@ -54,16 +86,16 @@ jobs:
             requirements.txt
             dev-requirements.txt
 
-      - name: Install latest dev version of Cirq
-        run: pip install --upgrade cirq~=1.0.dev
-
-      - name: Install qsim dev requirements
+      - name: Install qsim development dependencies
         run: |
           pip install -r requirements.txt
           pip install -r dev-requirements.txt
 
-      - name: Run Python tests
-        env:
-          MAKEFLAGS: ${{inputs.debug && '--debug=b' || '' }}
-          PYTEST_ADDOPTS: ${{inputs.debug && '-v' || '' }}
-        run: make -j run-py-tests
+      - name: Run C++ tests
+        run: |
+          bazel test \
+              --config=avx \
+              --config=openmp \
+              --config=${{matrix.sanitizer_opt}} \
+              ${{env.use-verbose && '--config=verbose'}} \
+              tests:all
