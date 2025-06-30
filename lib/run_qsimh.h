@@ -125,7 +125,7 @@ struct QSimHRunner final {
       param.num_root_gatexs = best_r;
     }
 
-    if (param.verbosity > 0) {
+    if (param.verbosity > 1) {
       PrintInfo(param, hd);
     }
 

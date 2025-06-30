@@ -259,7 +259,7 @@ int main(int argc, char* argv[]) {
 
   Factory factory(opt.num_threads);
 
-  if (param.verbosity > 0) {
+  if (param.verbosity > 0 && world_rank == 0) {
     IO::messagef("sizeof complex = %zu bytes.\n",
                sizeof(std::complex<Factory::fp_type>));
   }
