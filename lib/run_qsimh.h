@@ -57,10 +57,10 @@ struct QSimHRunner final {
       return false;
     }
 
-    double t0 = 0.0;
+    double t_PRE_0 = 0.0;
 
     if (param.verbosity > 0) {
-      t0 = GetTime();
+      t_PRE_0 = GetTime();
     }
 
     HybridData hd;
@@ -130,13 +130,7 @@ struct QSimHRunner final {
     }
 
     rc = HybridSimulator(param.num_threads).Run(
-        param, factory, hd, parts, fgates0, fgates1, bitstrings, results);
-
-    if (rc && param.verbosity > 0) {
-      double t1 = GetTime();
-      IO::messagef("prefix %d: time elapsed %g seconds.\n", param.prefix, t1 - t0);
-      report_memory_usage(param.prefix, "For this prefix");
-    }
+        param, factory, hd, parts, fgates0, fgates1, bitstrings, results, t_PRE_0);
 
     return rc;
   }

@@ -20,22 +20,40 @@
 #include <complex>
 #include <vector>
 #include <sys/resource.h>
+#include <iostream>
 
 #include "gate.h"
 #include "gate_appl.h"
+#include "util.h"
 
 namespace qsim {
 
 // Report memory usage for a specific prefix (rank)
-long report_memory_usage(int prefix, const char* phase = nullptr) {
+long PeakMemoryUsage() {
     struct rusage usage;
     getrusage(RUSAGE_SELF, &usage);
-    if (phase) {
-        printf("prefix %d [%s]: Memory usage: %ld kB\n", prefix, phase, usage.ru_maxrss);
-    } else {
-        printf("prefix %d: Memory usage: %ld kB\n", prefix, usage.ru_maxrss);
-    }
     return usage.ru_maxrss;
+}
+
+size_t CurrentMemoryUsage() {
+  std::ifstream status_file("/proc/self/status");
+  if (!status_file.is_open()) {
+    std::cerr << "Failed to open /proc/self/status\n";
+    return 0;
+  }
+
+  std::string line;
+  while (std::getline(status_file, line)) {
+    if (line.rfind("VmRSS:", 0) == 0) {
+      std::istringstream iss(line);
+      std::string key;
+      size_t value_kb;
+      std::string unit;
+      iss >> key >> value_kb >> unit;
+      return value_kb;
+    }
+  }
+  return 0;
 }
 
 /**
@@ -313,7 +331,8 @@ struct HybridSimulator final {
            HybridData& hd, const std::vector<unsigned>& parts,
            const std::vector<GateFused>& fgates0,
            const std::vector<GateFused>& fgates1,
-           const std::vector<uint64_t>& bitstrings, Results& results) const {
+           const std::vector<uint64_t>& bitstrings, Results& results,
+           double t_PRE_0) const {
     using Simulator = typename Factory::Simulator;
     using StateSpace = typename Simulator::StateSpace;
     using State = typename StateSpace::State;
@@ -330,7 +349,7 @@ struct HybridSimulator final {
     auto loc0 = CheckpointLocations(param, fgates0);
     auto loc1 = CheckpointLocations(param, fgates1);
 
-    if (param.verbosity > 0) {
+    if (param.verbosity > 1) {
       IO::messagef("No histories:\n\tprefix (_01) %lu, root (_O2) %lu, "
                    "suffix (_O3) = %lu.\n", pmax, rmax, smax);
 
@@ -342,8 +361,7 @@ struct HybridSimulator final {
                  "prefix (_O1) %u, root (_O2) %u, suffix (_O3) %u.\n",
                  loc1[0], loc1[1] - loc1[0], fgates1.size() - loc1[1]);
 
-      IO::messagef("CSV output format:\n\t"
-                   "%lu, %lu, %lu, %u, %u, %u, %u, %u, %u\n",
+      IO::messagef("CSV output format: %lu, %lu, %lu, %u, %u, %u, %u, %u, %u\n",
                    pmax, rmax, smax,
                    loc0[0], loc0[1] - loc0[0],
                    fgates0.size() - loc0[1],
@@ -383,6 +401,11 @@ struct HybridSimulator final {
     State state0s = state_space.Null();
     State state1s = state_space.Null();
 
+    size_t mem_OVH = PeakMemoryUsage();
+    if (param.verbosity > 0) {
+      IO::messagef("prefix %d: M_OVH= %zu kB\n", param.prefix, mem_OVH);
+    }
+
     // Create states.
 
     if (!CreateStates(hd.num_qubits0, hd.num_qubits1, state_space, true,
@@ -410,6 +433,13 @@ struct HybridSimulator final {
     // param.prefix encodes the prefix path.
     unsigned gatex_index = SetSchmidtMatrices(
         0, num_p_gates, param.prefix, prev, hd.gatexs);
+
+    if (param.verbosity > 0) {
+      double t_PRE_1 = 0.0;
+      t_PRE_1 = GetTime();
+      IO::messagef("prefix %d: T_PRE= %g seconds.\n", param.prefix, t_PRE_1 - t_PRE_0);
+    }
+    double t_APP_0 = GetTime();
 
     if (gatex_index == 0) {
       // Apply gates before the first checkpoint.
@@ -467,6 +497,15 @@ struct HybridSimulator final {
         for_.Run(results.size(), f,
                  state_space, *rstate0, *rstate1, indices, results);
       }
+    }
+
+
+
+    if (param.verbosity > 0) {
+      double t_APP_1 = GetTime();
+      IO::messagef("prefix %d: T_APP= %g seconds.\n", param.prefix, t_APP_1 - t_APP_0);
+      size_t mem_OVH_STA = PeakMemoryUsage();
+      IO::messagef("prefix %d: M_STA= %zu kB\n", param.prefix, mem_OVH_STA - mem_OVH);
     }
 
     return true;

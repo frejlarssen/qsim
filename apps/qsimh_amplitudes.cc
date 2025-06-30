@@ -259,12 +259,16 @@ int main(int argc, char* argv[]) {
 
   Factory factory(opt.num_threads);
 
+  if (param.verbosity > 0) {
+    IO::messagef("sizeof complex = %zu bytes.\n",
+               sizeof(std::complex<Factory::fp_type>));
+  }
+  
+
   if (Runner::Run(param, factory, circuit, parts, bitstrings, results)) {
-    double t_post_0 = 0.0;
-    long m_post_0 = 0;
-    if (param.verbosity > 0 && world_rank == 0) {
-      t_post_0 = GetTime();
-      m_post_0 = report_memory_usage(prefix, "Rank0: Before post-processing");
+    double t_SUM_0 = 0.0;
+    if (param.verbosity > 0) {
+      t_SUM_0 = GetTime();
     }
 
     // Sum results across all paths if we have more than one
@@ -279,13 +283,16 @@ int main(int argc, char* argv[]) {
       }
     }
 
+    double t_SUM_1 = 0.0;
+    if (param.verbosity > 0) {
+      t_SUM_1 = GetTime();
+      IO::messagef("prefix %d: T_SUM= %g seconds.\n", param.prefix, t_SUM_1 - t_SUM_0);
+    }
+
     // The root process writes the final result
     if (world_rank == 0) {
       if (param.verbosity > 0) {
         double t_post_1 = GetTime();
-        long m_post_1 = report_memory_usage(prefix, "Rank0: After post-processing");
-        IO::messagef("post-processing: time elapsed %g seconds.\n", t_post_1 - t_post_0);
-        IO::messagef("post-processing: extra memory usage %ld kB.\n", m_post_1 - m_post_0);
       }
       WriteAmplitudes(opt.output_file, bitstrings, results);
       IO::messagef("all done.\n");
